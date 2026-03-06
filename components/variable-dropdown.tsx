@@ -1068,6 +1068,8 @@ export function VariableDropdown({
                     <ChevronRight className="size-4 text-gray-500" />
                   )}
                 </button>
+              ) : breadcrumbMode && isField ? (
+                null
               ) : (
                 <div className="w-5 flex-shrink-0" />
               )}
@@ -1095,7 +1097,7 @@ export function VariableDropdown({
                     {node.name}
                   </div>
                   {breadcrumbMode && searchQuery.trim() && (
-                    <div className="text-xs text-gray-500 truncate mt-0.5">
+                    <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">
                       {getFieldBreadcrumbPath(node).join(" > ")}
                     </div>
                   )}
@@ -1140,8 +1142,8 @@ export function VariableDropdown({
                   <div className="text-sm text-gray-900 font-medium truncate">
                     {node.name}
                   </div>
-                  {searchQuery.trim() && !isField && (
-                    <div className="text-xs text-gray-500 truncate mt-0.5">
+                  {breadcrumbMode && searchQuery.trim() && !isField && (
+                    <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">
                       {getNodePathForSearch(node).join(" > ")}
                     </div>
                   )}

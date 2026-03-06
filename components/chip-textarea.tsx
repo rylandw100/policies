@@ -174,14 +174,14 @@ export function ChipTextarea({
           // Add text before the chip
           if (chip.startIndex > lastIndex) {
             const textBefore = value.substring(lastIndex, chip.startIndex);
-            if (textBefore) {
+            if (textBefore.trim() || textBefore) {
               contentRef.current?.appendChild(document.createTextNode(textBefore));
             }
           }
 
           // Create chip element
           const chipContainer = document.createElement("span");
-          chipContainer.className = "inline-flex items-center gap-1 py-0.5 rounded-md mr-1 relative group";
+          chipContainer.className = "inline-flex items-center gap-1 py-0.5 rounded-md relative group";
           chipContainer.style.cssText = `
             background-color: #F9F7F6;
             border: 1px solid rgba(0, 0, 0, 0.1);
@@ -192,7 +192,8 @@ export function ChipTextarea({
             display: inline-flex;
             flex-direction: row;
             align-items: center;
-            padding: 0px 4px 0px 6px;
+            padding: 0px 4px;
+            margin: 0 4px 0 0;
             position: relative;
           `;
           chipContainer.setAttribute("data-chip-id", chip.id);
