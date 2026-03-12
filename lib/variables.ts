@@ -1,20 +1,87 @@
 import { VariableNode, VariablePath } from "@/components/variable-picker";
 import { flattenVariableTree } from "./flatten-variables";
 
-// Generate variable structure for Trigger step
-export function generateTriggerVariables(): VariableNode {
+// Helper function to deep clone a VariableNode and add changeState to all paths
+function cloneNodeWithChangeState(node: VariableNode, changeState: "before" | "after"): VariableNode {
+  const cloned: VariableNode = {
+    ...node,
+    children: node.children ? node.children.map(child => cloneNodeWithChangeState(child, changeState)) : undefined,
+  };
+  
+  // Add changeState to path if it exists
+  if (cloned.path) {
+    cloned.path = {
+      ...cloned.path,
+      changeState,
+    };
+  }
+  
+  return cloned;
+}
+
+// Helper function to duplicate fields in a category with before/after changeStates
+function duplicateFieldsInCategory(category: VariableNode): VariableNode {
+  if (!category.children || category.type !== "category") {
+    return category;
+  }
+  
+  const duplicatedFields: VariableNode[] = [];
+  
+  // For each field, create two copies - one with "before" and one with "after"
+  category.children.forEach(field => {
+    if (field.type === "field" && field.path) {
+      const beforeField = cloneNodeWithChangeState(field, "before");
+      const afterField = cloneNodeWithChangeState(field, "after");
+      
+      // Update IDs to make them unique
+      beforeField.id = `${field.id}-before`;
+      afterField.id = `${field.id}-after`;
+      
+      duplicatedFields.push(beforeField, afterField);
+    } else {
+      // For non-field children, just add them as-is
+      duplicatedFields.push(field);
+    }
+  });
+  
   return {
-    id: "trigger",
-    name: "Trigger event",
-    type: "step",
-    stepName: "rwebb_object is created",
-    stepId: "ID: 1",
-    stepIcon: "zap",
-    children: [
-      {
-        id: "employee",
-        name: "Employee",
-        type: "object",
+    ...category,
+    children: duplicatedFields,
+  };
+}
+
+// Helper function to clone a category for Manager with updated paths
+function cloneCategoryForManager(category: VariableNode): VariableNode {
+  const cloned = JSON.parse(JSON.stringify(category));
+  
+  // Recursively update paths to include "Manager" in the category path
+  const updatePaths = (node: VariableNode) => {
+    if (node.path) {
+      node.path = {
+        ...node.path,
+        category: `Manager > ${node.path.category}`,
+      };
+    }
+    if (node.children) {
+      node.children.forEach(updatePaths);
+    }
+  };
+  
+  updatePaths(cloned);
+  
+  // Update the category ID to make it unique
+  cloned.id = `manager-${category.id}`;
+  
+  return cloned;
+}
+
+// Generate variable structure for Trigger step
+export function generateTriggerVariables(showChangeStates?: boolean): VariableNode {
+  // Define the Employee object structure
+  const employeeObject: VariableNode = {
+    id: "employee",
+    name: "Employee",
+    type: "object",
         children: [
           {
             id: "authentication-settings",
@@ -1282,58 +1349,144 @@ export function generateTriggerVariables(): VariableNode {
             ],
           },
         ],
-      },
+      };
+
+  // Build children array - duplicate fields in Employee categories if showChangeStates is true
+  // Also add Manager category that contains all Employee categories
+  const children: VariableNode[] = [];
+  
+  // Helper function to process Employee categories (duplicate fields if needed)
+  const processEmployeeCategories = (categories: VariableNode[] | undefined): VariableNode[] | undefined => {
+    if (!categories) return undefined;
+    return categories.map(category => {
+      if (category.type === "category") {
+        return showChangeStates ? duplicateFieldsInCategory(category) : category;
+      }
+      return category;
+    });
+  };
+  
+  if (showChangeStates) {
+    // Duplicate fields within each category of the Employee object
+    const processedCategories = processEmployeeCategories(employeeObject.children);
+    
+    // Create Manager category with all Employee categories (excluding Manager itself)
+    const managerCategory: VariableNode = {
+      id: "manager",
+      name: "Manager",
+      type: "category",
+      children: employeeObject.children
+        ?.filter(cat => cat.type === "category" && cat.id !== "manager")
+        .map(cat => {
+          // Clone category for Manager, but also duplicate fields if showChangeStates is true
+          const cloned = cloneCategoryForManager(cat);
+          if (showChangeStates) {
+            return duplicateFieldsInCategory(cloned);
+          }
+          return cloned;
+        }),
+    };
+    
+    // Combine Manager category with other categories and sort alphabetically
+    const allCategories = [
+      managerCategory,
+      ...(processedCategories || []),
+    ].sort((a, b) => a.name.localeCompare(b.name));
+    
+    const employeeWithDuplicatedFields: VariableNode = {
+      ...employeeObject,
+      children: allCategories,
+    };
+    
+    children.push(employeeWithDuplicatedFields);
+  } else {
+    // Single Employee object without changeState
+    const processedCategories = processEmployeeCategories(employeeObject.children);
+    
+    // Create Manager category with all Employee categories (excluding Manager itself)
+    const managerCategory: VariableNode = {
+      id: "manager",
+      name: "Manager",
+      type: "category",
+      children: employeeObject.children
+        ?.filter(cat => cat.type === "category" && cat.id !== "manager")
+        .map(cat => cloneCategoryForManager(cat)),
+    };
+    
+    // Combine Manager category with other categories and sort alphabetically
+    const allCategories = [
+      managerCategory,
+      ...(processedCategories || []),
+    ].sort((a, b) => a.name.localeCompare(b.name));
+    
+    const employeeWithManager: VariableNode = {
+      ...employeeObject,
+      children: allCategories,
+    };
+    
+    children.push(employeeWithManager);
+  }
+  
+  // Add Event details object
+  children.push({
+    id: "event-details",
+    name: "Event details",
+    type: "object",
+    children: [
       {
-        id: "event-details",
+        id: "event-details-category",
         name: "Event details",
-        type: "object",
+        type: "category",
         children: [
           {
-            id: "event-details-category",
-            name: "Event details",
-            type: "category",
-            children: [
-              {
-                id: "requestedAt",
-                name: "Requested at",
-                type: "field",
-                fieldType: "date",
-                path: {
-                  step: "trigger",
-                  object: "Event details",
-                  category: "Event details",
-                  field: "Requested at",
-                },
-              },
-              {
-                id: "requestedBy",
-                name: "Requested by",
-                type: "field",
-                fieldType: "string",
-                path: {
-                  step: "trigger",
-                  object: "Event details",
-                  category: "Event details",
-                  field: "Requested by",
-                },
-              },
-              {
-                id: "effectiveFrom",
-                name: "Effective from",
-                type: "field",
-                fieldType: "date",
-                path: {
-                  step: "trigger",
-                  object: "Event details",
-                  category: "Event details",
-                  field: "Effective from",
-                },
-              },
-            ],
+            id: "requestedAt",
+            name: "Requested at",
+            type: "field",
+            fieldType: "date",
+            path: {
+              step: "trigger",
+              object: "Event details",
+              category: "Event details",
+              field: "Requested at",
+            },
+          },
+          {
+            id: "requestedBy",
+            name: "Requested by",
+            type: "field",
+            fieldType: "string",
+            path: {
+              step: "trigger",
+              object: "Event details",
+              category: "Event details",
+              field: "Requested by",
+            },
+          },
+          {
+            id: "effectiveFrom",
+            name: "Effective from",
+            type: "field",
+            fieldType: "date",
+            path: {
+              step: "trigger",
+              object: "Event details",
+              category: "Event details",
+              field: "Effective from",
+            },
           },
         ],
       },
     ],
+  });
+
+  return {
+    id: "trigger",
+    name: "Trigger event",
+    type: "step",
+    stepName: showChangeStates ? "Profile change is effective" : "rwebb_object is created",
+    stepId: "ID: 1",
+    stepIcon: "zap",
+    children,
   };
 }
 
@@ -3072,9 +3225,10 @@ export function generateDocumentVariables(): VariableNode[] {
 export function getAvailableSteps(
   currentStep: SelectedNode,
   outputFormat?: string,
-  jsonProperties?: Array<{ name: string; type: string; description: string }>
+  jsonProperties?: Array<{ name: string; type: string; description: string }>,
+  showChangeStates?: boolean
 ): VariableNode[] {
-  const steps: VariableNode[] = [flattenVariableTree(generateTriggerVariables())];
+  const steps: VariableNode[] = [flattenVariableTree(generateTriggerVariables(showChangeStates))];
 
   if (currentStep === "sms") {
     steps.push(flattenVariableTree(generateAIPromptVariables(outputFormat || "Text", jsonProperties)));

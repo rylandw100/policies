@@ -17,6 +17,7 @@ export type VariablePath = {
   object: string;
   category: string;
   field: string;
+  changeState?: "before" | "after"; // Optional field for before/after change states
 };
 
 export type VariableNode = {

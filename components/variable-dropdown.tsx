@@ -32,6 +32,7 @@ type VariableDropdownProps = {
   hideSearchInput?: boolean;
   openedViaHotkey?: boolean;
   breadcrumbMode?: boolean; // New prop for breadcrumb navigation mode
+  showChangeStates?: boolean; // Show before/after change state selector
 };
 
 export function VariableDropdown({
@@ -46,8 +47,31 @@ export function VariableDropdown({
   hideSearchInput = false,
   openedViaHotkey = false,
   breadcrumbMode = false,
+  showChangeStates = false,
 }: VariableDropdownProps) {
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  const prevSearchQueryRef = useRef(initialSearchQuery);
+  
+  // Save breadcrumb path when entering search mode, restore when clearing
+  useEffect(() => {
+    if (breadcrumbMode) {
+      const wasSearching = prevSearchQueryRef.current.trim().length > 0;
+      const isSearching = searchQuery.trim().length > 0;
+      
+      if (!wasSearching && isSearching) {
+        // Entering search mode - save current breadcrumb path
+        savedBreadcrumbPathRef.current = [...breadcrumbPath];
+      } else if (wasSearching && !isSearching) {
+        // Clearing search - restore saved breadcrumb path
+        if (savedBreadcrumbPathRef.current.length > 0) {
+          setBreadcrumbPath([...savedBreadcrumbPathRef.current]);
+          savedBreadcrumbPathRef.current = [];
+        }
+      }
+      
+      prevSearchQueryRef.current = searchQuery;
+    }
+  }, [searchQuery, breadcrumbMode]);
   // Auto-expand if only one step, otherwise collapse all
   const shouldAutoExpand = availableSteps.length === 1;
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
@@ -72,17 +96,40 @@ export function VariableDropdown({
   // Breadcrumb navigation state
   const [breadcrumbPath, setBreadcrumbPath] = useState<Array<{ id: string; name: string; type: string; node: VariableNode }>>([]);
   
-  // Reset breadcrumb path when popover closes
+  // Save breadcrumb path when entering search mode
+  const savedBreadcrumbPathRef = useRef<Array<{ id: string; name: string; type: string; node: VariableNode }>>([]);
+  
+  
+  // Track previous isOpen state to detect when popover opens/closes
+  const prevIsOpenRef = useRef(isOpen);
+  
+  // Reset breadcrumb path when popover closes or opens
   useEffect(() => {
-    if (!isOpen && breadcrumbMode) {
-      setBreadcrumbPath([]);
-      prevBreadcrumbPathLengthRef.current = 0;
-      prevNavigableItemsLengthRef.current = 0;
-    } else if (isOpen && breadcrumbMode) {
-      // Initialize refs when popover opens
-      prevBreadcrumbPathLengthRef.current = breadcrumbPath.length;
+    if (breadcrumbMode) {
+      const wasOpen = prevIsOpenRef.current;
+      const isNowOpen = isOpen;
+      
+      // Reset when popover closes
+      if (wasOpen && !isNowOpen) {
+        setBreadcrumbPath([]);
+        savedBreadcrumbPathRef.current = [];
+        prevBreadcrumbPathLengthRef.current = 0;
+        prevNavigableItemsLengthRef.current = 0;
+      }
+      
+      // Reset when popover opens (to ensure clean state)
+      // This is important when opening via "Add variable" vs typing "{{"
+      if (!wasOpen && isNowOpen) {
+        setBreadcrumbPath([]);
+        savedBreadcrumbPathRef.current = [];
+        prevBreadcrumbPathLengthRef.current = 0;
+        prevNavigableItemsLengthRef.current = 0;
+      }
+      
+      prevIsOpenRef.current = isOpen;
     }
-  }, [isOpen, breadcrumbMode, breadcrumbPath.length]);
+  }, [isOpen, breadcrumbMode]);
+
   
   // Helper function to recursively search for a node in the tree
   const findNodeRecursive = (node: VariableNode, targetId: string, targetType: string): VariableNode | null => {
@@ -140,11 +187,12 @@ export function VariableDropdown({
     }
     
     // Find the current node based on breadcrumb path
-    // Use filteredSteps to respect search, but fall back to availableSteps if not found
-    let currentNode = findNodeByPath(filteredSteps, breadcrumbPath);
+    // Always use availableSteps first to ensure we can find the node
+    // (filteredSteps might not have it if search is active)
+    let currentNode = findNodeByPath(availableSteps, breadcrumbPath);
     if (!currentNode) {
-      // If not found in filtered steps (e.g., due to search), try availableSteps
-      currentNode = findNodeByPath(availableSteps, breadcrumbPath);
+      // Fallback to filteredSteps if not found in availableSteps
+      currentNode = findNodeByPath(filteredSteps, breadcrumbPath);
     }
     
     if (!currentNode || !currentNode.children) {
@@ -171,10 +219,33 @@ export function VariableDropdown({
     if (!breadcrumbMode) return;
     
     if (node.children && node.children.length > 0) {
-      // For steps, use stepName if available, otherwise use name
-      const displayName = node.type === 'step' && node.stepName ? node.stepName : node.name;
-      // Push to breadcrumb path - this will trigger the effect to reset focus
-      setBreadcrumbPath(prev => [...prev, { id: node.id, name: displayName, type: node.type, node }]);
+      // Use functional update to check against the latest breadcrumb path
+      setBreadcrumbPath(prev => {
+        // Check if this node is already the last item in the breadcrumb path
+        // If so, don't add it again (we're already at this level)
+        if (prev.length > 0) {
+          const lastBreadcrumb = prev[prev.length - 1];
+          if (lastBreadcrumb && lastBreadcrumb.id === node.id && lastBreadcrumb.type === node.type) {
+            // Already at this level, don't add it again
+            return prev;
+          }
+        }
+        
+        // For steps, use stepName if available, otherwise use name
+        let displayName = node.type === 'step' && node.stepName ? node.stepName : (node.name || '');
+        
+        // Remove any "before the change" or "after the change" labels from node names in breadcrumbs
+        // These should only appear on fields, not in navigation breadcrumbs
+        if (displayName) {
+          displayName = displayName.replace(/\s*\(before the change\)/gi, '');
+          displayName = displayName.replace(/\s*\(after the change\)/gi, '');
+          displayName = displayName.replace(/\s*\(Before the change\)/gi, '');
+          displayName = displayName.replace(/\s*\(After the change\)/gi, '');
+        }
+        
+        // Push to breadcrumb path - this will trigger the effect to reset focus
+        return [...prev, { id: node.id, name: displayName, type: node.type, node }];
+      });
     }
   };
   
@@ -385,7 +456,8 @@ export function VariableDropdown({
         v.step === path.step &&
         v.object === path.object &&
         v.category === path.category &&
-        v.field === path.field
+        v.field === path.field &&
+        (!showChangeStates || v.changeState === path.changeState)
     );
   };
 
@@ -412,6 +484,9 @@ export function VariableDropdown({
   const handleSelect = (path: VariablePath) => {
     if (!path) return;
 
+    // Use changeState from path directly (it's already set when variables are duplicated)
+    const pathWithChangeState: VariablePath = path;
+
     if (multiple) {
       const isAlreadySelected = isSelected(path);
       if (isAlreadySelected) {
@@ -422,15 +497,16 @@ export function VariableDropdown({
                 v.step === path.step &&
                 v.object === path.object &&
                 v.category === path.category &&
-                v.field === path.field
+                v.field === path.field &&
+                (!showChangeStates || v.changeState === pathWithChangeState.changeState)
               )
           )
         );
       } else {
-        onSelect([...selectedVariables, path]);
+        onSelect([...selectedVariables, pathWithChangeState]);
       }
     } else {
-      onSelect([path]);
+      onSelect([pathWithChangeState]);
       onClose();
     }
   };
@@ -525,7 +601,17 @@ export function VariableDropdown({
         stepId?: string;
       }> = [];
       
-      const nodeId = `${node.type}-${node.id}`;
+      // Include changeState and category path in nodeId for fields to ensure unique keys
+      // This is especially important for Manager fields which have the same field ID as regular Employee fields
+      let nodeId: string;
+      if (node.type === "field" && node.path) {
+        const categoryPath = node.path.category || "";
+        const changeState = node.path.changeState || "";
+        // Include category path to distinguish Manager fields from regular Employee fields
+        nodeId = `${node.type}-${node.id}-${categoryPath}-${changeState}`;
+      } else {
+        nodeId = `${node.type}-${node.id}`;
+      }
       const currentStepId = node.type === 'step' ? node.id : stepId;
       
       // In breadcrumb mode, only show current level items
@@ -735,7 +821,17 @@ export function VariableDropdown({
     const nodesToExpand = new Set<string>();
     
     const findMatchingNodes = (node: VariableNode, parentIds: string[] = []) => {
-      const nodeId = `${node.type}-${node.id}`;
+      // Include changeState and category path in nodeId for fields to ensure unique keys
+      // This is especially important for Manager fields which have the same field ID as regular Employee fields
+      let nodeId: string;
+      if (node.type === "field" && node.path) {
+        const categoryPath = node.path.category || "";
+        const changeState = node.path.changeState || "";
+        // Include category path to distinguish Manager fields from regular Employee fields
+        nodeId = `${node.type}-${node.id}-${categoryPath}-${changeState}`;
+      } else {
+        nodeId = `${node.type}-${node.id}`;
+      }
       const matchesSearch = node.name.toLowerCase().includes(searchQuery.toLowerCase());
 
       if (node.type === "field" && matchesSearch) {
@@ -883,7 +979,17 @@ export function VariableDropdown({
   };
 
   const renderNode = (node: VariableNode, level: number = 0, parentPath: string[] = []): ReactElement | null => {
-    const nodeId = `${node.type}-${node.id}`;
+    // Include changeState and category path in nodeId for fields to ensure unique keys
+    // This is especially important for Manager fields which have the same field ID as regular Employee fields
+    let nodeId: string;
+    if (node.type === "field" && node.path) {
+      const categoryPath = node.path.category || "";
+      const changeState = node.path.changeState || "";
+      // Include category path to distinguish Manager fields from regular Employee fields
+      nodeId = `${node.type}-${node.id}-${categoryPath}-${changeState}`;
+    } else {
+      nodeId = `${node.type}-${node.id}`;
+    }
     const hasChildren = node.children && node.children.length > 0;
     const isExpanded = expandedNodes.has(nodeId);
     const isField = node.type === "field";
@@ -1095,6 +1201,11 @@ export function VariableDropdown({
                     isSelected(node.path) ? "text-[#512f3e]" : "text-gray-900"
                   )}>
                     {node.name}
+                    {node.path?.changeState && (
+                      <span className="text-xs text-gray-500 font-normal ml-2">
+                        ({node.path.changeState === "before" ? "before the change" : "after the change"})
+                      </span>
+                    )}
                   </div>
                   {breadcrumbMode && searchQuery.trim() && (
                     <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">
@@ -1165,7 +1276,7 @@ export function VariableDropdown({
           )}
         </div>
 
-        {!breadcrumbMode && hasChildren && isExpanded && (
+        {!breadcrumbMode && hasChildren && isExpanded && !isField && (
           <div className="mt-0 relative">
             {node.children?.map((child) => renderNode(child, level + 1, currentPath))}
           </div>
@@ -1178,24 +1289,74 @@ export function VariableDropdown({
 
   // Flatten all matching nodes when searching to show a flat list of results
   // Only include fields (variables), not categories or objects
-  const flattenSearchResults = (nodes: VariableNode[]): VariableNode[] => {
-    const results: VariableNode[] = [];
-    
-    const traverse = (node: VariableNode) => {
-      // Only add fields (variables) to search results, skip categories and objects
-      if (node.type === 'field') {
-        results.push(node);
+  const flattenSearchResults = useMemo(() => {
+    return (nodes: VariableNode[]): VariableNode[] => {
+      const results: VariableNode[] = [];
+      const seenKeys = new Set<string>();
+      const searchLower = searchQuery.trim().toLowerCase();
+      
+      // If search is empty, return empty array
+      if (!searchLower) {
+        return [];
       }
       
-      // Recursively traverse children to find all fields
-      if (node.children) {
-        node.children.forEach(traverse);
-      }
+      const traverse = (node: VariableNode) => {
+        // Only add fields (variables) that match the search query
+        if (node.type === 'field') {
+          // Check if the field name or path matches the search
+          const nameMatches = node.name.toLowerCase().includes(searchLower);
+          const pathMatches = node.path && (
+            node.path.field.toLowerCase().includes(searchLower) ||
+            node.path.category.toLowerCase().includes(searchLower) ||
+            node.path.object.toLowerCase().includes(searchLower)
+          );
+          
+          if (nameMatches || pathMatches) {
+            // Create a unique key that includes the full path to distinguish
+            // between regular Employee fields and Manager fields (which have the same field ID)
+            // Format: object.category.field.changeState
+            const categoryPath = node.path?.category || "";
+            const fieldName = node.path?.field || node.name;
+            const changeState = node.path?.changeState || "";
+            const uniqueKey = `${node.path?.object || ""}.${categoryPath}.${fieldName}.${changeState}`;
+            
+            // Only add if we haven't seen this exact field+path+changeState combination
+            if (!seenKeys.has(uniqueKey)) {
+              seenKeys.add(uniqueKey);
+              results.push(node);
+            }
+          }
+        }
+        
+        // Recursively traverse children to find all matching fields
+        if (node.children) {
+          node.children.forEach(traverse);
+        }
+      };
+      
+      nodes.forEach(traverse);
+      
+      // Sort results so that Manager fields appear after non-Manager fields
+      // Fields from Employee (non-Manager) should appear first, then Manager fields
+      return results.sort((a, b) => {
+        const aIsManager = a.path?.category?.startsWith("Manager >") ?? false;
+        const bIsManager = b.path?.category?.startsWith("Manager >") ?? false;
+        
+        // If one is Manager and the other isn't, non-Manager comes first
+        if (aIsManager && !bIsManager) return 1;
+        if (!aIsManager && bIsManager) return -1;
+        
+        // If both are Manager or both are not Manager, sort by category then field name
+        const aCategory = a.path?.category || "";
+        const bCategory = b.path?.category || "";
+        const categoryCompare = aCategory.localeCompare(bCategory);
+        if (categoryCompare !== 0) return categoryCompare;
+        
+        // Same category, sort by field name
+        return (a.name || "").localeCompare(b.name || "");
+      });
     };
-    
-    nodes.forEach(traverse);
-    return results;
-  };
+  }, [searchQuery]);
 
   // Check if there are any actual matching variables (fields) in the results
   // This is important because in tree mode, parent nodes might match but have no matching fields
@@ -1220,11 +1381,16 @@ export function VariableDropdown({
   // In breadcrumb mode, use current level nodes unless searching
   // When searching in breadcrumb mode, show all matching results flattened (not just current level)
   // In tree mode, always show the filtered tree structure
-  const currentLevelNodes = breadcrumbMode && !searchQuery.trim() 
-    ? getCurrentLevelNodes() 
-    : breadcrumbMode && searchQuery.trim()
-      ? flattenSearchResults(filteredSteps)
-      : filteredSteps;
+  const currentLevelNodes = useMemo(() => {
+    if (breadcrumbMode && !searchQuery.trim()) {
+      return getCurrentLevelNodes();
+    } else if (breadcrumbMode && searchQuery.trim()) {
+      // When searching, only return matching fields
+      return flattenSearchResults(availableSteps);
+    } else {
+      return filteredSteps;
+    }
+  }, [breadcrumbMode, searchQuery, availableSteps, filteredSteps, flattenSearchResults, breadcrumbPath]);
 
   return (
     <div
@@ -1269,33 +1435,36 @@ export function VariableDropdown({
         </div>
       )}
 
+
       {/* Breadcrumb trail */}
-      {breadcrumbMode && breadcrumbPath.length > 0 && (
-        <div className="px-3 py-2 border-b border-gray-200 flex items-center gap-1 flex-wrap">
-          <button
-            type="button"
-            onClick={() => {
-              setBreadcrumbPath([]);
-              if (openedViaHotkey) {
-                setFocusedIndex(0);
-              }
-            }}
-            className="text-xs text-gray-600 hover:text-gray-900 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors"
-          >
-            All
-          </button>
-          {breadcrumbPath.map((crumb, index) => (
-            <div key={index} className="flex items-center gap-1">
-              <ChevronRight className="size-3 text-gray-400" />
-              <button
-                type="button"
-                onClick={() => handleBreadcrumbClick(index)}
-                className="text-xs text-gray-600 hover:text-gray-900 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors"
-              >
-                {crumb.name}
-              </button>
-            </div>
-          ))}
+      {breadcrumbMode && breadcrumbPath.length > 0 && !searchQuery.trim() && (
+        <div className="px-3 py-2 border-b border-gray-200">
+          <div className="flex items-center gap-1 flex-wrap">
+            <button
+              type="button"
+              onClick={() => {
+                setBreadcrumbPath([]);
+                if (openedViaHotkey) {
+                  setFocusedIndex(0);
+                }
+              }}
+              className="text-xs text-gray-600 hover:text-gray-900 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors"
+            >
+              All
+            </button>
+            {breadcrumbPath.map((crumb, index) => (
+              <div key={index} className="flex items-center gap-1">
+                <ChevronRight className="size-3 text-gray-400" />
+                <button
+                  type="button"
+                  onClick={() => handleBreadcrumbClick(index)}
+                  className="text-xs text-gray-600 hover:text-gray-900 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors"
+                >
+                  {crumb.name}
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1310,9 +1479,19 @@ export function VariableDropdown({
           </div>
         ) : (
           <div className="space-y-0">
-            {currentLevelNodes.map((step) => {
+            {currentLevelNodes.map((step, index) => {
               // Handle both steps and objects at the top level
-              const nodeId = `${step.type}-${step.id}`;
+              // Include changeState and category path in nodeId for fields to ensure unique keys
+              // This is especially important for Manager fields which have the same field ID as regular Employee fields
+              let nodeId: string;
+              if (step.type === "field" && step.path) {
+                const categoryPath = step.path.category || "";
+                const changeState = step.path.changeState || "";
+                // Include category path to distinguish Manager fields from regular Employee fields
+                nodeId = `${step.type}-${step.id}-${categoryPath}-${changeState}`;
+              } else {
+                nodeId = `${step.type}-${step.id}`;
+              }
               const isCurrentStep = step.type === 'step' && currentStep === step.id;
               const isExpanded = expandedNodes.has(nodeId);
               
@@ -1331,6 +1510,12 @@ export function VariableDropdown({
               };
 
               const isFocused = focusedIndex >= 0 && navigableItemsRef.current[focusedIndex]?.nodeId === nodeId;
+              
+              // When searching in breadcrumb mode, currentLevelNodes contains only matching fields
+              // Render them directly without recursion
+              if (breadcrumbMode && searchQuery.trim() && step.type === 'field') {
+                return renderNode(step, 0, []);
+              }
               
               // For steps, use the existing step rendering logic
               if (step.type === 'step') {

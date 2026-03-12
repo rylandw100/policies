@@ -51,15 +51,41 @@ export function ChipTextarea({
     category: string,
     field: string
   ): VariableNode | null => {
+    // Handle Manager > prefix in category
+    let actualCategory = category;
+    let isManagerCategory = false;
+    if (category.startsWith("Manager > ")) {
+      actualCategory = category.substring(11); // Remove "Manager > "
+      isManagerCategory = true;
+    }
+    
     for (const step of steps) {
       if (step.children) {
         for (const obj of step.children) {
           if (obj.name === object && obj.children) {
-            for (const cat of obj.children) {
-              if (cat.name === category && cat.children) {
-                for (const fld of cat.children) {
-                  if (fld.name === field || fld.path?.field === field) {
-                    return fld;
+            if (isManagerCategory) {
+              // Look for Manager category first
+              const managerCategory = obj.children.find(cat => cat.name === "Manager" && cat.type === "category");
+              if (managerCategory && managerCategory.children) {
+                // Then look for the actual category inside Manager
+                for (const cat of managerCategory.children) {
+                  if (cat.name === actualCategory && cat.children) {
+                    for (const fld of cat.children) {
+                      if (fld.name === field || fld.path?.field === field) {
+                        return fld;
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              // Normal category lookup
+              for (const cat of obj.children) {
+                if (cat.name === category && cat.children) {
+                  for (const fld of cat.children) {
+                    if (fld.name === field || fld.path?.field === field) {
+                      return fld;
+                    }
                   }
                 }
               }
@@ -78,15 +104,41 @@ export function ChipTextarea({
     category: string,
     field: string
   ): string => {
+    // Handle Manager > prefix in category
+    let actualCategory = category;
+    let isManagerCategory = false;
+    if (category.startsWith("Manager > ")) {
+      actualCategory = category.substring(11); // Remove "Manager > "
+      isManagerCategory = true;
+    }
+    
     for (const step of steps) {
       if (step.children) {
         for (const obj of step.children) {
           if (obj.name === object && obj.children) {
-            for (const cat of obj.children) {
-              if (cat.name === category && cat.children) {
-                for (const fld of cat.children) {
-                  if (fld.name === field || fld.path?.field === field) {
-                    return `${obj.name} > ${cat.name} > ${fld.name}`;
+            if (isManagerCategory) {
+              // Look for Manager category first
+              const managerCategory = obj.children.find(cat => cat.name === "Manager" && cat.type === "category");
+              if (managerCategory && managerCategory.children) {
+                // Then look for the actual category inside Manager
+                for (const cat of managerCategory.children) {
+                  if (cat.name === actualCategory && cat.children) {
+                    for (const fld of cat.children) {
+                      if (fld.name === field || fld.path?.field === field) {
+                        return `${obj.name} > Manager > ${cat.name} > ${fld.name}`;
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              // Normal category lookup
+              for (const cat of obj.children) {
+                if (cat.name === category && cat.children) {
+                  for (const fld of cat.children) {
+                    if (fld.name === field || fld.path?.field === field) {
+                      return `${obj.name} > ${cat.name} > ${fld.name}`;
+                    }
                   }
                 }
               }
@@ -107,9 +159,22 @@ export function ChipTextarea({
     let chipId = 0;
 
     while ((match = regex.exec(text)) !== null) {
-      const fullText = match[0]; // e.g., "{{Employee.Employee information.lastName}}"
-      const innerText = match[1]; // e.g., "Employee.Employee information.lastName"
-      const parts = innerText.split(".");
+      const fullText = match[0]; // e.g., "{{Employee.Employee information.lastName}}" or "{{before:Employee.Employee information.lastName}}"
+      const innerText = match[1]; // e.g., "Employee.Employee information.lastName" or "before:Employee.Employee information.lastName"
+      
+      // Check for before: or after: prefix
+      let changeState: "before" | "after" | undefined;
+      let variableText = innerText;
+      
+      if (innerText.startsWith("before:")) {
+        changeState = "before";
+        variableText = innerText.substring(7); // Remove "before:"
+      } else if (innerText.startsWith("after:")) {
+        changeState = "after";
+        variableText = innerText.substring(6); // Remove "after:"
+      }
+      
+      const parts = variableText.split(".");
       
       if (parts.length >= 3) {
         const object = parts[0];
@@ -119,6 +184,21 @@ export function ChipTextarea({
         const variableNode = findVariableNode(availableSteps, object, category, field);
         const displayName = variableNode?.name || field;
         const breadcrumbs = findBreadcrumbs(availableSteps, object, category, field);
+        
+        // Add "Manager >" prefix to display name if category starts with "Manager >"
+        const displayNameWithManager = category.startsWith("Manager >")
+          ? `Manager > ${displayName}`
+          : displayName;
+        
+        // Include change state in display name if present: "{variable name} ({change state})" or "Manager > {variable name} ({change state})"
+        const displayNameWithState = changeState 
+          ? `${displayNameWithManager} (${changeState === "before" ? "Before the change" : "After the change"})`
+          : displayNameWithManager;
+
+        // Include change state in breadcrumbs for tooltip display
+        const breadcrumbsWithState = changeState 
+          ? `${breadcrumbs} (${changeState === "before" ? "Before the change" : "After the change"})`
+          : breadcrumbs;
 
         chips.push({
           id: `chip-${chipId++}`,
@@ -126,8 +206,8 @@ export function ChipTextarea({
           object,
           category,
           field,
-          displayName,
-          breadcrumbs,
+          displayName: displayNameWithState,
+          breadcrumbs: breadcrumbsWithState,
           startIndex: match.index,
           endIndex: match.index + fullText.length,
         });

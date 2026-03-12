@@ -40,6 +40,7 @@ export default function Home() {
   const [jsonSchemaMode, setJsonSchemaMode] = useState<"basic" | "advanced">("basic");
   const [workflowOption, setWorkflowOption] = useState<"opt1" | "opt2">("opt1");
   const [isNavigationDropdownOpen, setIsNavigationDropdownOpen] = useState(false);
+  const [showChangeStates, setShowChangeStates] = useState(false);
   const currentPage = pathname === "/documents" ? "Documents" : "Workflows";
   
   // JSON Schema state
@@ -410,7 +411,7 @@ export default function Home() {
         // Otherwise, position relative to button
         const buttonRef = pickerContext === "sms" ? smsAddVariableButtonRef : promptAddVariableButtonRef;
         
-        if (buttonRef.current) {
+        if (buttonRef?.current) {
           const rect = buttonRef.current.getBoundingClientRect();
           
           // Verify the rect is valid (not all zeros, which would indicate element not rendered)
@@ -562,6 +563,9 @@ export default function Home() {
     }
 
     if (showVariablePicker) {
+      // Immediately try to position, then retry with requestAnimationFrame for delayed renders
+      updateVariablePopoverPosition();
+      
       // Use double requestAnimationFrame to ensure DOM is fully ready and rendered
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -730,6 +734,26 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-6">
+            {currentPage === "Workflows" && (
+              <>
+                <div className="flex items-center gap-2 text-white">
+                  <span className="text-sm font-medium">Show change states</span>
+                  <button
+                    onClick={() => setShowChangeStates(!showChangeStates)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      showChangeStates ? "bg-white" : "bg-white/30"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-[#4A0039] transition-transform ${
+                        showChangeStates ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+                <div className="w-px h-6 bg-white/30" />
+              </>
+            )}
             <div className="flex items-center gap-2 text-white">
               <span className="text-sm font-medium">Support</span>
               <div className="w-px h-6 bg-white/30" />
@@ -815,7 +839,7 @@ export default function Home() {
                     <div className="bg-white border border-[#e0dede] rounded-lg h-[72px] px-6 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <TriggerIcon className="size-6 text-[#716f6c]" />
-                        <p className="text-sm font-medium text-black">rwebb_object is created</p>
+                        <p className="text-sm font-medium text-black">{showChangeStates ? "Profile change is effective" : "rwebb_object is created"}</p>
                       </div>
                       <Button variant="ghost" className="text-[#4a6ba6] hover:text-[#4a6ba6]">
                         Change
@@ -886,9 +910,14 @@ export default function Home() {
                             setSavedTextCursorPosition({ start, end });
                           }
                           setPickerContext("aiPrompt");
-                          setShowVariablePicker(true);
                           setOpenedViaHotkey(false);
                           setCursorPosition({ top: 0, left: 0 });
+                          // Use requestAnimationFrame to ensure button is rendered before positioning
+                          requestAnimationFrame(() => {
+                            requestAnimationFrame(() => {
+                              setShowVariablePicker(true);
+                            });
+                          });
                         }}
                       >
                         + Add variable
@@ -897,7 +926,7 @@ export default function Home() {
                     <ChipTextarea
                       id="prompt-textarea"
                       value={promptMessage}
-                      availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties)}
+                      availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties, showChangeStates)}
                       onChange={(text) => {
                         setPromptMessage(text);
                         const textarea = document.getElementById("prompt-textarea");
@@ -1437,9 +1466,14 @@ export default function Home() {
                                 setSavedTextCursorPosition({ start, end });
                               }
                               setPickerContext("sms");
-                              setShowVariablePicker(true);
                               setOpenedViaHotkey(false);
                               setCursorPosition({ top: 0, left: 0 });
+                              // Use requestAnimationFrame to ensure button is rendered before positioning
+                              requestAnimationFrame(() => {
+                                requestAnimationFrame(() => {
+                                  setShowVariablePicker(true);
+                                });
+                              });
                             }}
                           >
                             + Add variable
@@ -1448,7 +1482,7 @@ export default function Home() {
                         <ChipTextarea
                           id="sms-message"
                           value={smsMessage}
-                          availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties)}
+                          availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties, showChangeStates)}
                           onChange={(text) => {
                             setSmsMessage(text);
                             const textarea = document.getElementById("sms-message");
@@ -1673,7 +1707,7 @@ export default function Home() {
                 <TriggerIcon className={`size-6 shrink-0 ${selectedNode === "trigger" ? "text-black" : "text-[#8c8888]"}`} />
                 <div className="flex-1 min-w-0 flex flex-col justify-center">
                   <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "12px", lineHeight: "16px", color: "#6F6F72", flex: "none", alignSelf: "stretch" }}>Workflow trigger</p>
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "16px", lineHeight: "24px", color: "#252528", flex: "none", alignSelf: "stretch" }}>rwebb_object is created</p>
+                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "16px", lineHeight: "24px", color: "#252528", flex: "none", alignSelf: "stretch" }}>{showChangeStates ? "Profile change is effective" : "rwebb_object is created"}</p>
                 </div>
               </div>
             </Card>
@@ -1785,7 +1819,7 @@ export default function Home() {
                     <div className="bg-white border border-[#e0dede] rounded-lg h-[72px] px-6 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <TriggerIcon className="size-6 text-[#716f6c]" />
-                        <p className="text-sm font-medium text-black">rwebb_object is created</p>
+                        <p className="text-sm font-medium text-black">{showChangeStates ? "Profile change is effective" : "rwebb_object is created"}</p>
                       </div>
                       <Button variant="ghost" className="text-[#4a6ba6] hover:text-[#4a6ba6]">
                         Change
@@ -1856,9 +1890,14 @@ export default function Home() {
                             setSavedTextCursorPosition({ start, end });
                           }
                           setPickerContext("aiPrompt");
-                          setShowVariablePicker(true);
                           setOpenedViaHotkey(false);
                           setCursorPosition({ top: 0, left: 0 });
+                          // Use requestAnimationFrame to ensure button is rendered before positioning
+                          requestAnimationFrame(() => {
+                            requestAnimationFrame(() => {
+                              setShowVariablePicker(true);
+                            });
+                          });
                         }}
                       >
                         + Add variable
@@ -1868,7 +1907,7 @@ export default function Home() {
                       <ChipTextarea
                         id="prompt-textarea"
                         value={promptMessage}
-                        availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties)}
+                        availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties, showChangeStates)}
                         onChange={(text) => {
                           setPromptMessage(text);
                           const textarea = document.getElementById("prompt-textarea");
@@ -2390,7 +2429,7 @@ export default function Home() {
                       <ChipTextarea
                         id="sms-message"
                         value={smsMessage}
-                        availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties)}
+                        availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties, showChangeStates)}
                         onChange={(text) => {
                           setSmsMessage(text);
                           const textarea = document.getElementById("sms-message");
@@ -2599,7 +2638,7 @@ export default function Home() {
                 <TriggerIcon className={`size-6 shrink-0 ${selectedNode === "trigger" ? "text-black" : "text-[#8c8888]"}`} />
                 <div className="flex-1 min-w-0 flex flex-col justify-center">
                   <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "12px", lineHeight: "16px", color: "#6F6F72", flex: "none", alignSelf: "stretch" }}>Workflow trigger</p>
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "16px", lineHeight: "24px", color: "#252528", flex: "none", alignSelf: "stretch" }}>rwebb_object is created</p>
+                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "16px", lineHeight: "24px", color: "#252528", flex: "none", alignSelf: "stretch" }}>{showChangeStates ? "Profile change is effective" : "rwebb_object is created"}</p>
                 </div>
               </div>
             </Card>
@@ -2722,19 +2761,21 @@ export default function Home() {
           }}
         >
           <VariableDropdown
-            availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties)}
+            availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties, showChangeStates)}
             selectedVariables={[]}
             initialSearchQuery={variableSearchQuery}
             hideSearchInput={openedViaHotkey}
             openedViaHotkey={openedViaHotkey}
             breadcrumbMode={workflowOption === "opt1"}
+            showChangeStates={showChangeStates}
             onSelect={(variables) => {
               if (variables.length > 0) {
                 const currentText = pickerContext === "sms" ? smsMessage : promptMessage;
                 
-                // Format variable as {{object.category.field}}
+                // Format variable as {{object.category.field}} or {{before:object.category.field}} or {{after:object.category.field}}
                 const variable = variables[variables.length - 1];
-                const variableText = `{{${variable.object}.${variable.category}.${variable.field}}}`;
+                const changeStatePrefix = variable.changeState ? `${variable.changeState}:` : '';
+                const variableText = `{{${changeStatePrefix}${variable.object}.${variable.category}.${variable.field}}}`;
                 
                 let finalText: string;
                 let insertionPosition: number;
