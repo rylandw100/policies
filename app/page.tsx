@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,34 +13,196 @@ import { StyledTextarea } from "@/components/styled-textarea";
 import { ChipTextarea } from "@/components/chip-textarea";
 import { getAvailableSteps, SelectedNode } from "@/lib/variables";
 import {
-  Edit,
   MoreHorizontal,
   ChevronDown,
-  Search,
   ZoomIn,
   ZoomOut,
   Maximize2,
-  HelpCircle,
   Code,
+  Database,
+  Globe,
+  Terminal,
+  ClipboardList,
+  X,
+  GripVertical,
+  AlertTriangle,
 } from "lucide-react";
-import { TriggerIcon, AIIcon, SMSIcon, CloseIcon, TrashIcon } from "@/components/icons";
+import { TriggerIcon, AIIcon, SMSIcon, WidgetIcon, CloseIcon, TrashIcon } from "@/components/icons";
+import { WorkflowStepConnector } from "@/components/workflow-step-connector";
+import {
+  ADD_STEP_CATALOG_GROUPS,
+  findCatalogItem,
+  isCatalogItemBasicTier,
+  WORKFLOW_BASIC_CATALOG_IDS,
+  WORKFLOW_CATALOG_DRAG_MIME,
+  WORKFLOW_TIER_CHIP_CLASS_ADVANCED,
+  WORKFLOW_TIER_CHIP_CLASS_BASIC,
+  WORKFLOW_TIER_CHIP_FONT_STYLE,
+  type CatalogItemWithCategory,
+} from "@/components/add-step-catalog";
+
+const RIPPLING_CATEGORIES = [
+  "Employee",
+  "Time and Attendance",
+  "Compliance",
+  "Learning Management",
+  "Payroll",
+  "Benefits",
+  "Recruiting",
+  "Performance",
+  "Documents",
+  "Departments",
+  "Compensation",
+  "Leave Management",
+  "Work Locations",
+  "App Management",
+  "Device Management",
+  "Expense Management",
+];
+
+const WORKFLOW_TRIGGER_ID = "flow-trigger";
+
+type WorkflowFlowStep =
+  | { id: string; role: "trigger" }
+  | { id: string; role: "aiPrompt"; title: string }
+  | { id: string; role: "widget"; title: string }
+  | {
+      id: string;
+      role: "custom";
+      catalogItemId: string;
+      title: string;
+      categoryLabel: string;
+    };
+
+function getWorkflowTier(steps: WorkflowFlowStep[]): "Basic" | "Advanced" {
+  for (const step of steps) {
+    if (step.role === "trigger") continue;
+    if (step.role === "aiPrompt" || step.role === "widget") return "Advanced";
+    if (
+      step.role === "custom" &&
+      !WORKFLOW_BASIC_CATALOG_IDS.has(step.catalogItemId)
+    ) {
+      return "Advanced";
+    }
+  }
+  return "Basic";
+}
 
 export default function Home() {
   const router = useRouter();
   const pathname = usePathname();
-  const [selectedNode, setSelectedNode] = useState<SelectedNode>("aiPrompt");
+  const [workflowFlowSteps, setWorkflowFlowSteps] = useState<WorkflowFlowStep[]>([
+    { id: WORKFLOW_TRIGGER_ID, role: "trigger" },
+  ]);
+  const [selectedCanvasStepId, setSelectedCanvasStepId] = useState<string | null>(null);
+
+  const workflowTier = useMemo(
+    () => getWorkflowTier(workflowFlowSteps),
+    [workflowFlowSteps]
+  );
+
+  const [workflowTitle, setWorkflowTitle] = useState("Scheduled health check");
+  const [workflowTitleEditing, setWorkflowTitleEditing] = useState(false);
+  const [workflowTitleDraft, setWorkflowTitleDraft] = useState(workflowTitle);
+  const workflowTitleInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (workflowTitleEditing) {
+      workflowTitleInputRef.current?.focus();
+      workflowTitleInputRef.current?.select();
+    }
+  }, [workflowTitleEditing]);
+
+  function commitWorkflowTitle() {
+    const next = workflowTitleDraft.trim();
+    if (!next) {
+      setWorkflowTitleDraft(workflowTitle);
+      setWorkflowTitleEditing(false);
+      return;
+    }
+    if (next !== workflowTitle) {
+      setWorkflowTitle(next);
+    }
+    setWorkflowTitleEditing(false);
+  }
+  /** Sidebar catalog chip is being dragged — canvas connectors show expanded drop targets. */
+  const [catalogDragActive, setCatalogDragActive] = useState(false);
+
+  const selectedFlowStep =
+    workflowFlowSteps.find((s) => s.id === selectedCanvasStepId) ?? null;
+  const selectedNode: SelectedNode =
+    selectedFlowStep?.role === "trigger"
+      ? "trigger"
+      : selectedFlowStep?.role === "aiPrompt"
+        ? "aiPrompt"
+        : selectedFlowStep?.role === "widget"
+          ? "widget"
+          : null;
+
+  function handleInsertCatalogStep(
+    item: CatalogItemWithCategory,
+    insertIndex: number
+  ) {
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `step-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const newStep: WorkflowFlowStep = {
+      id,
+      role: "custom",
+      catalogItemId: item.id,
+      title: item.label,
+      categoryLabel: item.category,
+    };
+    setWorkflowFlowSteps((prev) => {
+      const tr = prev[0];
+      if (!tr || tr.role !== "trigger") return prev;
+      const mid = prev.slice(1);
+      const next = [...mid];
+      const idx = Math.min(Math.max(0, insertIndex), next.length);
+      next.splice(idx, 0, newStep);
+      return [tr, ...next];
+    });
+  }
+
+  function handleRemoveSelectedStep() {
+    const id = selectedCanvasStepId;
+    if (!id || id === WORKFLOW_TRIGGER_ID) return;
+    setWorkflowFlowSteps((prev) => prev.filter((s) => s.id !== id));
+    setSelectedCanvasStepId(null);
+  }
+
   const [showVariablePicker, setShowVariablePicker] = useState(false);
-  const [pickerContext, setPickerContext] = useState<"aiPrompt" | "sms">("aiPrompt");
+  const [pickerContext, setPickerContext] = useState<"aiPrompt" | "widget">("aiPrompt");
   const [summarizeVariables, setSummarizeVariables] = useState<VariablePath[]>([]);
-  const [smsMessage, setSmsMessage] = useState("Example body");
-  const [promptMessage, setPromptMessage] = useState(`Write a warm, professional welcome message for a newly hired employee.
- Use their name, role, team, and start date. Keep it friendly and concise.`);
+  const [widgetConfig, setWidgetConfig] = useState("Homepage Compliance Widget");
+  const [autoMapEnabled, setAutoMapEnabled] = useState(true);
+  const [showMappingDetails, setShowMappingDetails] = useState(false);
+  const autoMappedFields = [
+    { field: "trainingCompliance.status", source: "Health check" },
+    { field: "trainingCompliance.details", source: "Health check" },
+    { field: "documentationCompliance.status", source: "Health check" },
+    { field: "documentationCompliance.details", source: "Health check" },
+    { field: "attendanceCompliance.status", source: "Health check" },
+    { field: "attendanceCompliance.details", source: "Health check" },
+    { field: "overallCompliance", source: "Health check" },
+    { field: "lastChecked", source: "Health check" },
+  ];
+  const [promptMessage, setPromptMessage] = useState(`You are an internal HR compliance agent responsible for checking employee training, documentation, and attendance data.
+
+Your goals are to:
+1. Review training completion status and required trainings
+2. Verify documentation is on file and up to date
+3. Check attendance rates and compliance thresholds
+4. Determine compliance status for each category (Training, Documentation, Attendance)
+5. Provide an overall compliance status
+
+For each category, determine if the employee is compliant or non-compliant based on company policies. Be accurate, policy-aligned, and never guess when information is missing.`);
   const [summarizeInputFocused, setSummarizeInputFocused] = useState(false);
-  const [outputFormat, setOutputFormat] = useState<string>("Text");
+  const [outputFormat, setOutputFormat] = useState<string>("JSON");
   const [jsonSchemaMode, setJsonSchemaMode] = useState<"basic" | "advanced">("basic");
   const [workflowOption, setWorkflowOption] = useState<"opt1" | "opt2">("opt1");
   const [isNavigationDropdownOpen, setIsNavigationDropdownOpen] = useState(false);
-  const [showChangeStates, setShowChangeStates] = useState(false);
   const currentPage = pathname === "/documents" ? "Documents" : "Workflows";
   
   // JSON Schema state
@@ -50,20 +212,69 @@ export default function Home() {
     type: string;
     description: string;
   };
-  const [jsonProperties, setJsonProperties] = useState<JsonProperty[]>([]);
+  const [jsonProperties, setJsonProperties] = useState<JsonProperty[]>([
+    { id: "prop-training-status", name: "trainingCompliance.status", type: "STR", description: "Compliant or Non-compliant" },
+    { id: "prop-training-details", name: "trainingCompliance.details", type: "STR", description: "Summary of training completion findings" },
+    { id: "prop-documentation-status", name: "documentationCompliance.status", type: "STR", description: "Compliant or Non-compliant" },
+    { id: "prop-documentation-details", name: "documentationCompliance.details", type: "STR", description: "Summary of documentation review findings" },
+    { id: "prop-attendance-status", name: "attendanceCompliance.status", type: "STR", description: "Compliant or Non-compliant" },
+    { id: "prop-attendance-details", name: "attendanceCompliance.details", type: "STR", description: "Summary of attendance record findings" },
+    { id: "prop-overall-status", name: "overallCompliance", type: "STR", description: "Compliant only if all three areas are compliant" },
+    { id: "prop-last-checked", name: "lastChecked", type: "STR", description: "ISO 8601 timestamp of when the check was performed" },
+  ]);
   const [jsonSchemaText, setJsonSchemaText] = useState<string>(`{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EmployeeComplianceHealthCheck",
   "type": "object",
-  "properties": {}
+  "properties": {
+    "trainingCompliance": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "description": "Compliant or Non-compliant" },
+        "details": { "type": "string", "description": "Summary of training completion findings" }
+      }
+    },
+    "documentationCompliance": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "description": "Compliant or Non-compliant" },
+        "details": { "type": "string", "description": "Summary of documentation review findings" }
+      }
+    },
+    "attendanceCompliance": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "description": "Compliant or Non-compliant" },
+        "details": { "type": "string", "description": "Summary of attendance record findings" }
+      }
+    },
+    "overallCompliance": { "type": "string", "description": "Compliant only if all three areas are compliant" },
+    "lastChecked": { "type": "string", "description": "ISO 8601 timestamp of when the check was performed" }
+  }
 }`);
   const [isUpdatingFromBasic, setIsUpdatingFromBasic] = useState(false);
   const [isUpdatingFromAdvanced, setIsUpdatingFromAdvanced] = useState(false);
   const [showGeneratePopover, setShowGeneratePopover] = useState(false);
+  const [showToolPopover, setShowToolPopover] = useState(false);
+  const toolButtonRef = useRef<HTMLButtonElement>(null);
+  const [toolPopoverPosition, setToolPopoverPosition] = useState({ top: 0, left: 0 });
+  const [showQueryModal, setShowQueryModal] = useState(false);
+  const [queryToolAdded, setQueryToolAdded] = useState(true);
+  const [queryChipHover, setQueryChipHover] = useState(false);
+  const queryChipRef = useRef<HTMLDivElement>(null);
+  const [queryScope, setQueryScope] = useState<"all" | "specific">("specific");
+  const [selectedObjects, setSelectedObjects] = useState<string[]>(["Employee", "Time and Attendance", "Compliance", "Learning Management"]);
+  const [objectDropdownOpen, setObjectDropdownOpen] = useState(false);
+  const [objectSearchQuery, setObjectSearchQuery] = useState("");
+  const objectDropdownRef = useRef<HTMLDivElement>(null);
+  const objectTriggerRef = useRef<HTMLDivElement>(null);
+  const [objectDropdownPosition, setObjectDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const [generatePrompt, setGeneratePrompt] = useState("");
   const generateButtonRef = useRef<HTMLButtonElement>(null);
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, right: 0 });
   const [isGeneratingSchema, setIsGeneratingSchema] = useState(false);
   const promptAddVariableButtonRef = useRef<HTMLButtonElement>(null);
-  const smsAddVariableButtonRef = useRef<HTMLButtonElement>(null);
+  const widgetAddVariableButtonRef = useRef<HTMLButtonElement>(null);
   const [variablePopoverPosition, setVariablePopoverPosition] = useState({ top: 0, left: 0 });
   const [variableSearchQuery, setVariableSearchQuery] = useState("");
   const [cursorPosition, setCursorPosition] = useState({ top: 0, left: 0 });
@@ -366,6 +577,80 @@ export default function Home() {
     }
   }, [showGeneratePopover]);
 
+  // Handle click outside for tool popover
+  useEffect(() => {
+    function handleToolClickOutside(event: MouseEvent) {
+      if (
+        toolButtonRef.current &&
+        !toolButtonRef.current.contains(event.target as Node) &&
+        showToolPopover
+      ) {
+        const target = event.target as HTMLElement;
+        if (!target.closest('.tool-popover')) {
+          setShowToolPopover(false);
+        }
+      }
+    }
+
+    function updateToolPopoverPosition() {
+      if (toolButtonRef.current) {
+        const rect = toolButtonRef.current.getBoundingClientRect();
+        setToolPopoverPosition({
+          top: rect.bottom + 4,
+          left: rect.left,
+        });
+      }
+    }
+
+    if (showToolPopover) {
+      updateToolPopoverPosition();
+      window.addEventListener('scroll', updateToolPopoverPosition, true);
+      window.addEventListener('resize', updateToolPopoverPosition);
+      document.addEventListener('mousedown', handleToolClickOutside);
+
+      return () => {
+        window.removeEventListener('scroll', updateToolPopoverPosition, true);
+        window.removeEventListener('resize', updateToolPopoverPosition);
+        document.removeEventListener('mousedown', handleToolClickOutside);
+      };
+    }
+  }, [showToolPopover]);
+
+  // Handle click outside for object dropdown
+  useEffect(() => {
+    function handleObjectDropdownClickOutside(event: MouseEvent) {
+      const target = event.target as Node;
+      const inTrigger = objectDropdownRef.current?.contains(target);
+      const inList = (event.target as HTMLElement).closest?.('.object-dropdown-list');
+      if (!inTrigger && !inList) {
+        setObjectDropdownOpen(false);
+      }
+    }
+
+    function updateObjectDropdownPosition() {
+      if (objectTriggerRef.current) {
+        const rect = objectTriggerRef.current.getBoundingClientRect();
+        setObjectDropdownPosition({
+          top: rect.bottom + 4,
+          left: rect.left,
+          width: rect.width,
+        });
+      }
+    }
+
+    if (objectDropdownOpen) {
+      updateObjectDropdownPosition();
+      document.addEventListener('mousedown', handleObjectDropdownClickOutside);
+      window.addEventListener('scroll', updateObjectDropdownPosition, true);
+      window.addEventListener('resize', updateObjectDropdownPosition);
+      return () => {
+        document.removeEventListener('mousedown', handleObjectDropdownClickOutside);
+        window.removeEventListener('scroll', updateObjectDropdownPosition, true);
+        window.removeEventListener('resize', updateObjectDropdownPosition);
+      };
+    }
+  }, [objectDropdownOpen]);
+
   // Calculate variable popover position and handle click outside
   useEffect(() => {
     function updateVariablePopoverPosition() {
@@ -378,7 +663,7 @@ export default function Home() {
       // If opened from cursor position (typing "{{"), ALWAYS use caret position
       // Don't fall through to button positioning when opened via hotkey
       if (openedViaHotkey) {
-        const textareaId = pickerContext === "sms" ? 'sms-message' : 'prompt-textarea';
+        const textareaId = pickerContext === "widget" ? 'widget-config' : 'prompt-textarea';
         const textarea = document.getElementById(textareaId);
         
         if (textarea) {
@@ -409,9 +694,9 @@ export default function Home() {
         return;
       } else {
         // Otherwise, position relative to button
-        const buttonRef = pickerContext === "sms" ? smsAddVariableButtonRef : promptAddVariableButtonRef;
+        const buttonRef = pickerContext === "widget" ? widgetAddVariableButtonRef : promptAddVariableButtonRef;
         
-        if (buttonRef?.current) {
+        if (buttonRef.current) {
           const rect = buttonRef.current.getBoundingClientRect();
           
           // Verify the rect is valid (not all zeros, which would indicate element not rendered)
@@ -536,7 +821,7 @@ export default function Home() {
     }
 
     function handleClickOutside(event: MouseEvent) {
-      const buttonRef = pickerContext === "sms" ? smsAddVariableButtonRef : promptAddVariableButtonRef;
+      const buttonRef = pickerContext === "widget" ? widgetAddVariableButtonRef : promptAddVariableButtonRef;
       const target = event.target as HTMLElement;
       
       // Don't close if clicking inside the variable popover
@@ -545,7 +830,7 @@ export default function Home() {
       }
       
       // Don't close if clicking inside the textarea
-      const textareaId = pickerContext === "sms" ? 'sms-message' : 'prompt-textarea';
+      const textareaId = pickerContext === "widget" ? 'widget-message' : 'prompt-textarea';
       const textarea = document.getElementById(textareaId);
       if (textarea && textarea.contains(target)) {
         return;
@@ -563,9 +848,6 @@ export default function Home() {
     }
 
     if (showVariablePicker) {
-      // Immediately try to position, then retry with requestAnimationFrame for delayed renders
-      updateVariablePopoverPosition();
-      
       // Use double requestAnimationFrame to ensure DOM is fully ready and rendered
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -696,64 +978,19 @@ export default function Home() {
         {/* Top Bar */}
         <div className="h-14 bg-[#4A0039] flex items-center justify-between px-4">
           <div className="flex items-center gap-4">
-            <div className="relative navigation-dropdown-container">
-              <Button
-                variant="ghost"
-                onClick={() => setIsNavigationDropdownOpen(!isNavigationDropdownOpen)}
-                className="h-10 px-4 bg-white/10 hover:bg-white/20 text-white font-medium flex items-center gap-2"
-              >
-                {currentPage}
-                <ChevronDown className={`size-4 transition-transform ${isNavigationDropdownOpen ? 'rotate-180' : ''}`} />
-              </Button>
-              {isNavigationDropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 bg-white rounded-md shadow-lg border border-[#e0dede] min-w-[160px] z-50">
-                  <button
-                    onClick={() => {
-                      router.push("/");
-                      setIsNavigationDropdownOpen(false);
-                    }}
-                    className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 first:rounded-t-md last:rounded-b-md ${
-                      currentPage === "Workflows" ? "bg-gray-50 font-medium" : ""
-                    }`}
-                  >
-                    Workflows
-                  </button>
-                  <button
-                    onClick={() => {
-                      router.push("/documents");
-                      setIsNavigationDropdownOpen(false);
-                    }}
-                    className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 first:rounded-t-md last:rounded-b-md ${
-                      currentPage === "Documents" ? "bg-gray-50 font-medium" : ""
-                    }`}
-                  >
-                    Documents
-                  </button>
-                </div>
-              )}
-            </div>
+            <svg width="113" height="16" viewBox="0 0 113 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3.07176 4.43636C3.07176 2.67636 2.17123 1.22182 0.488281 0H4.40041C5.77334 1.04727 6.61482 2.64727 6.61482 4.43636C6.61482 6.22545 5.77334 7.82545 4.40041 8.87273C5.67 9.39636 6.39338 10.6764 6.39338 12.5091V16H2.85032V12.5091C2.85032 10.7636 2.00884 9.54182 0.488281 8.87273C2.17123 7.65091 3.07176 6.19636 3.07176 4.43636ZM10.7484 4.43636C10.7484 2.67636 9.84786 1.22182 8.16491 0H12.077C13.45 1.04727 14.2914 2.64727 14.2914 4.43636C14.2914 6.22545 13.45 7.82545 12.077 8.87273C13.3466 9.39636 14.07 10.6764 14.07 12.5091V16H10.5269V12.5091C10.5269 10.7636 9.68547 9.54182 8.16491 8.87273C9.84786 7.65091 10.7484 6.19636 10.7484 4.43636ZM18.425 4.43636C18.425 2.67636 17.5245 1.22182 15.8415 0H19.7537C21.1266 1.04727 21.9681 2.64727 21.9681 4.43636C21.9681 6.22545 21.1266 7.82545 19.7537 8.87273C21.0233 9.39636 21.7466 10.6764 21.7466 12.5091V16H18.2036V12.5091C18.2036 10.7636 17.3621 9.54182 15.8415 8.87273C17.5245 7.65091 18.425 6.19636 18.425 4.43636Z" fill="white"/>
+              <path d="M32.2866 13.0925H29.6406V2.90918H36.1392C39.2649 2.90918 40.8059 4.07282 40.8059 5.97827C40.8059 7.27282 40.0499 8.24736 38.6397 8.74191C40.0935 8.96009 40.7477 9.731 40.7477 11.1128V13.091H38.0727V11.2292C38.0727 10.0655 37.4912 9.60009 35.9647 9.60009H32.2866V13.091V13.0925ZM35.9938 4.39282H32.2866V8.11645H35.9647C37.3022 8.11645 38.1309 7.37463 38.1309 6.211C38.1309 5.04736 37.3604 4.39282 35.9938 4.39282" fill="white"/>
+              <path d="M45.3998 2.90918H42.7539V13.0925H45.3998V2.90918Z" fill="white"/>
+              <path d="M53.5121 9.77463H50.2846V13.091H47.6387V2.90918H53.5702C56.6959 2.90918 58.3387 4.21827 58.3387 6.31282C58.3387 8.40736 56.6668 9.77463 53.5121 9.77463V9.77463ZM53.4539 4.39282H50.2846V8.291H53.4248C54.7914 8.291 55.6346 7.59282 55.6346 6.32736C55.6346 5.06191 54.7914 4.39282 53.4539 4.39282" fill="white"/>
+              <path d="M65.7816 9.77463H62.5541V13.091H59.9082V2.90918H65.8398C68.9654 2.90918 70.6083 4.21827 70.6083 6.31282C70.6083 8.40736 68.9364 9.77463 65.7816 9.77463V9.77463ZM65.7235 4.39282H62.5541V8.291H65.6944C67.061 8.291 67.9042 7.59282 67.9042 6.32736C67.9042 5.06191 67.061 4.39282 65.7235 4.39282" fill="white"/>
+              <path d="M74.8256 2.90918V11.5783H81.4259V13.0925H72.1797V2.90918H74.8256Z" fill="white"/>
+              <path d="M85.728 2.90918H83.082V13.0925H85.728V2.90918Z" fill="white"/>
+              <path d="M89.7114 6.31282V13.0925H87.9668V2.90918H89.9454L97.1563 9.68736V2.90918H98.9009V13.0925H96.9237L89.7114 6.31282Z" fill="white"/>
+              <path d="M107.535 4.10201C105.02 4.10201 103.377 5.70201 103.377 8.08746C103.377 10.4729 104.948 11.8984 107.39 11.8984H107.564C108.393 11.8984 109.324 11.7238 110.181 11.4475V8.69837H105.907V7.24382H112.769V12.0293C111.344 12.7711 109.193 13.3529 107.448 13.3529H107.216C103.203 13.3529 100.615 11.2293 100.615 8.14564C100.615 5.06201 103.276 2.64746 107.361 2.64746H107.594C109.294 2.64746 111.243 3.18564 112.682 4.02928L111.926 5.26564C110.632 4.55292 109.091 4.10201 107.71 4.10201H107.535V4.10201Z" fill="white"/>
+            </svg>
           </div>
           <div className="flex items-center gap-6">
-            {currentPage === "Workflows" && (
-              <>
-                <div className="flex items-center gap-2 text-white">
-                  <span className="text-sm font-medium">Show change states</span>
-                  <button
-                    onClick={() => setShowChangeStates(!showChangeStates)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      showChangeStates ? "bg-white" : "bg-white/30"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-[#4A0039] transition-transform ${
-                        showChangeStates ? "translate-x-6" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                </div>
-                <div className="w-px h-6 bg-white/30" />
-              </>
-            )}
             <div className="flex items-center gap-2 text-white">
               <span className="text-sm font-medium">Support</span>
               <div className="w-px h-6 bg-white/30" />
@@ -769,47 +1006,108 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Navigation Bar - Workflows */}
+        {/* Navigation Bar - Workflows (Figma 1170:22109) */}
         {currentPage === "Workflows" && (
-          <div className="h-18 bg-white border-b border-[#e0dede] flex items-center justify-between px-[18px] py-3">
-            <div className="flex items-center gap-3">
-              <CloseIcon className="size-6 text-black cursor-pointer" />
-              <div className="flex items-center gap-3">
-                <h1 className="text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "20px", lineHeight: "28px", display: "flex", alignItems: "center" }}>Custom workflow 1</h1>
-                <div className="flex items-center gap-2 bg-gray-100 rounded-md p-1">
-                  <button
-                    onClick={() => setWorkflowOption("opt1")}
-                    className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
-                      workflowOption === "opt1"
-                        ? "bg-white text-black shadow-sm"
-                        : "text-gray-600 hover:text-black"
-                    }`}
+          <div className="flex h-[72px] min-h-[72px] items-center justify-between border-b border-[#e0dede] bg-white px-[18px] py-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-9 shrink-0 text-black hover:bg-[#f5f5f5]"
+                aria-label="Close workflow"
+              >
+                <CloseIcon className="size-6" />
+              </Button>
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  {workflowTitleEditing ? (
+                    <input
+                      ref={workflowTitleInputRef}
+                      value={workflowTitleDraft}
+                      onChange={(e) => setWorkflowTitleDraft(e.target.value)}
+                      onBlur={commitWorkflowTitle}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitWorkflowTitle();
+                        }
+                        if (e.key === "Escape") {
+                          setWorkflowTitleDraft(workflowTitle);
+                          setWorkflowTitleEditing(false);
+                        }
+                      }}
+                      className="min-w-[10rem] max-w-[min(20rem,40vw)] rounded border border-[#e0dede] bg-white px-2 py-1 text-[20px] leading-7 text-black outline-none focus-visible:ring-2 focus-visible:ring-[#5aa5e7]/40"
+                      style={{
+                        fontFamily: "'Basel Grotesk', sans-serif",
+                        fontWeight: 535,
+                      }}
+                      aria-label="Workflow name"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="min-w-0 max-w-[min(20rem,40vw)] cursor-text truncate rounded border-0 bg-transparent px-0.5 text-left text-[20px] leading-7 text-black hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5aa5e7]/40"
+                      style={{
+                        fontFamily: "'Basel Grotesk', sans-serif",
+                        fontWeight: 535,
+                      }}
+                      aria-label={`Workflow name: ${workflowTitle}. Click to edit.`}
+                      onClick={() => {
+                        setWorkflowTitleDraft(workflowTitle);
+                        setWorkflowTitleEditing(true);
+                      }}
+                    >
+                      {workflowTitle}
+                    </button>
+                  )}
+                  <span
+                    className={
+                      workflowTier === "Advanced"
+                        ? WORKFLOW_TIER_CHIP_CLASS_ADVANCED
+                        : WORKFLOW_TIER_CHIP_CLASS_BASIC
+                    }
+                    style={WORKFLOW_TIER_CHIP_FONT_STYLE}
                   >
-                    Opt. 1
-                  </button>
-                  <button
-                    onClick={() => setWorkflowOption("opt2")}
-                    className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
-                      workflowOption === "opt2"
-                        ? "bg-white text-black shadow-sm"
-                        : "text-gray-600 hover:text-black"
-                    }`}
-                  >
-                    Opt. 2
-                  </button>
+                    {workflowTier}
+                  </span>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <div className="size-2 rounded-full bg-[#bfbebe]" />
-                <span className="text-sm text-[#595555]">Unpublished</span>
-              </div>
-              <div className="w-px h-6 bg-[#e0dede]" />
-              <Button className="bg-[#7A005D] text-white hover:bg-[#7A005D]/90 h-10">
-                Save
+            <div className="ml-4 flex shrink-0 items-center gap-4 pl-4 sm:gap-6">
+              <p
+                className="hidden text-center text-[11px] leading-[13px] tracking-[0.25px] text-[#716f6c] sm:block whitespace-nowrap"
+                style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}
+              >
+                Last published 3 months ago
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-9 gap-2 rounded-md border-0 bg-transparent px-2 text-[13px] text-[#252528] shadow-none hover:bg-[#f5f5f5] focus-visible:border-transparent focus-visible:ring-0"
+                aria-label="Workflow warnings, 0 issues"
+              >
+                <AlertTriangle className="size-4 text-[#716f6c]" strokeWidth={2} />
+                <span style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>0</span>
               </Button>
-              <MoreHorizontal className="size-6 text-[#8c8888] cursor-pointer" />
+              <div className="hidden h-6 w-px bg-[#e0dede] sm:block" aria-hidden />
+              <Button
+                type="button"
+                className="h-10 gap-2 bg-[#7A005D] px-4 text-[15px] leading-[19px] tracking-[0.25px] text-white hover:bg-[#7A005D]/90"
+                style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
+              >
+                Save
+                <ChevronDown className="size-4 opacity-90" strokeWidth={2} />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-9 text-[#8c8888] hover:bg-[#f5f5f5]"
+                aria-label="More options"
+              >
+                <MoreHorizontal className="size-6" />
+              </Button>
             </div>
           </div>
         )}
@@ -817,18 +1115,119 @@ export default function Home() {
 
       {/* Main Content - Workflows */}
       {currentPage === "Workflows" && (
-        <>
-        {workflowOption === "opt1" && (
       <div className="flex h-screen pt-32">
-        {/* Left Panel - Form */}
-        <div className="w-[600px] border-r border-[#e0dede] bg-white flex flex-col h-full">
+        {/* Left Panel - Always shows "Add a step" at 300px */}
+        <div
+          className={`w-[300px] shrink-0 border-r border-[#e0dede] bg-white flex flex-col h-full relative overflow-visible ${
+            selectedCanvasStepId !== null ? "z-20" : "z-0"
+          }`}
+        >
           <div className="flex-1 overflow-y-auto">
-            {selectedNode === "trigger" && (
+            {/* "Add a step" panel - always rendered */}
+              <div className="px-5 py-6">
+                <h2 className="text-black mb-3" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "20px", lineHeight: "28px" }}>Add a step</h2>
+
+                <div
+                  className="mb-4 rounded-lg border border-[#e0dede] bg-[#f9f7f6] px-3 py-2.5"
+                  role="note"
+                >
+                  <p
+                    className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-[#8c8888]"
+                    style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
+                  >
+                    Basic vs advanced
+                  </p>
+                  <p
+                    className="text-[12px] leading-[17px] text-[#595555]"
+                    style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}
+                  >
+                    A workflow stays <span className="font-medium text-[#252528]">Basic</span> only if
+                    every step (besides the trigger) is{" "}
+                    <span className="font-medium text-[#252528]">Send an email</span> or{" "}
+                    <span className="font-medium text-[#252528]">Assign a task</span>. Anything
+                    else—including other notifications, Rippling actions, logic, or any AI/widget
+                    step—makes it <span className="font-medium text-[#252528]">Advanced</span>.
+                  </p>
+                </div>
+
+                <div className="bg-[#e0dede] h-px mb-5" />
+
+                {ADD_STEP_CATALOG_GROUPS.filter((g) => g.category !== "Logic").map((group) => (
+                  <div key={group.category} className="mb-5">
+                    <p
+                      className="text-[11px] font-medium text-[#8c8888] tracking-wide uppercase mb-2"
+                      style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
+                    >
+                      {group.category}
+                    </p>
+                    <div className="space-y-2">
+                      {group.items.map((item) => {
+                        const tierBasic = isCatalogItemBasicTier(item.id);
+                        return (
+                        <div
+                          key={item.id}
+                          draggable
+                          title={
+                            tierBasic
+                              ? "Basic-tier: OK for a Basic workflow if you only add Send an email and Assign a task steps."
+                              : "Advanced-tier: adds or keeps this workflow as Advanced."
+                          }
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData(WORKFLOW_CATALOG_DRAG_MIME, item.id);
+                            e.dataTransfer.setData("text/plain", item.id);
+                            e.dataTransfer.effectAllowed = "copy";
+                            setCatalogDragActive(true);
+                          }}
+                          onDragEnd={() => setCatalogDragActive(false)}
+                          className="flex items-center gap-2 rounded-lg border border-[#e0dede] bg-white px-2 py-2 cursor-grab select-none transition-colors hover:border-[#c8c6c6] hover:bg-[#f9f7f6] active:cursor-grabbing"
+                        >
+                          <GripVertical
+                            className="size-4 shrink-0 text-[#a8a4a4] pointer-events-none"
+                            strokeWidth={2}
+                            aria-hidden
+                          />
+                          <div className="flex size-6 shrink-0 items-center justify-center pointer-events-none">
+                            {item.icon}
+                          </div>
+                          <span
+                            className="min-w-0 flex-1 text-sm text-[#252528] pointer-events-none"
+                            style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}
+                          >
+                            {item.label}
+                          </span>
+                          <span
+                            className={`pointer-events-none shrink-0 ${
+                              tierBasic
+                                ? WORKFLOW_TIER_CHIP_CLASS_BASIC
+                                : WORKFLOW_TIER_CHIP_CLASS_ADVANCED
+                            }`}
+                            style={WORKFLOW_TIER_CHIP_FONT_STYLE}
+                          >
+                            {tierBasic ? "Basic" : "Advanced"}
+                          </span>
+                        </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+          </div>
+
+          {/* Step Details Drawer - slides over the "Add a step" panel */}
+          <div
+            className={`absolute top-0 left-0 bottom-0 z-10 bg-white border-r border-[#e0dede] shadow-lg flex flex-col transition-transform duration-200 ease-in-out w-[600px] ${
+              selectedCanvasStepId !== null ? "translate-x-0" : "-translate-x-full pointer-events-none"
+            }`}
+          >
+            <div className="flex-1 overflow-y-auto">
+
+            {selectedFlowStep?.role === "trigger" && (
               <div className="p-6">
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "20px", lineHeight: "28px", display: "flex", alignItems: "flex-end" }}>Trigger details</h2>
-                    <CloseIcon className="size-6 text-black cursor-pointer" onClick={() => setSelectedNode("aiPrompt")} />
+                    <CloseIcon className="size-6 text-black cursor-pointer" onClick={() => setSelectedCanvasStepId(null)} />
                   </div>
                 </div>
                 <div className="bg-[#e0dede] h-px mb-6" />
@@ -839,7 +1238,7 @@ export default function Home() {
                     <div className="bg-white border border-[#e0dede] rounded-lg h-[72px] px-6 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <TriggerIcon className="size-6 text-[#716f6c]" />
-                        <p className="text-sm font-medium text-black">{showChangeStates ? "Profile change is effective" : "rwebb_object is created"}</p>
+                        <p className="text-sm font-medium text-black">Start date at 9:00 AM PST</p>
                       </div>
                       <Button variant="ghost" className="text-[#4a6ba6] hover:text-[#4a6ba6]">
                         Change
@@ -850,43 +1249,46 @@ export default function Home() {
               </div>
             )}
 
-            {selectedNode === "aiPrompt" && (
+            {selectedFlowStep?.role === "aiPrompt" && (
               <div className="p-6">
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "20px", lineHeight: "28px", display: "flex", alignItems: "flex-end" }}>AI prompt</h2>
+                    <h2 className="text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "20px", lineHeight: "28px", display: "flex", alignItems: "flex-end" }}>Health check</h2>
                     <div className="flex items-center gap-4">
                       <span className="text-sm text-black">ID: 12</span>
-                      <CloseIcon className="size-6 text-black cursor-pointer" />
+                      <CloseIcon className="size-6 text-black cursor-pointer" onClick={() => setSelectedCanvasStepId(null)} />
                     </div>
                   </div>
-                  <p className="text-black mb-6" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "16px", lineHeight: "24px", flex: "none", alignSelf: "stretch" }}>
-                    A flexible, general-purpose chain action that allows users to define custom AI transformations
+                  <p className="text-black mb-6" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "15px", lineHeight: "22px", flex: "none", alignSelf: "stretch" }}>
+                    Call this agent with instructions and tools
                   </p>
                 </div>
 
                 <div className="space-y-4">
                   <div>
                     <label className="block text-base leading-6 text-black mb-2" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                      Step name
+                      Step name <span className="text-[#c3402c]">*</span>
                     </label>
                     <Input
-                      defaultValue="Prompt 1"
-                      className="w-full"
+                      defaultValue="Health check"
+                      className="w-full border-[#CCCCCC]"
                     />
                   </div>
 
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <label className="block text-base leading-6 text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                        Prompt <span className="text-[#c3402c]">*</span>
+                        Instruction <span className="text-[#c3402c]">*</span>
                       </label>
-                      <Button
-                        ref={promptAddVariableButtonRef}
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-6 text-xs bg-white border border-black/20 rounded-md px-2 gap-1 flex items-center justify-center"
+                    </div>
+                    <div className="bg-white border border-[rgba(0,0,0,0.2)] rounded-lg overflow-hidden">
+                      <div className="border-b border-[#e0dede] flex items-center justify-end p-2">
+                        <Button
+                          ref={promptAddVariableButtonRef}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs bg-white border border-black/20 rounded-md px-2 gap-1 flex items-center justify-center"
                         onClick={() => {
                           // Save current cursor position
                           const textarea = document.getElementById("prompt-textarea");
@@ -910,24 +1312,19 @@ export default function Home() {
                             setSavedTextCursorPosition({ start, end });
                           }
                           setPickerContext("aiPrompt");
+                          setShowVariablePicker(true);
                           setOpenedViaHotkey(false);
                           setCursorPosition({ top: 0, left: 0 });
-                          // Use requestAnimationFrame to ensure button is rendered before positioning
-                          requestAnimationFrame(() => {
-                            requestAnimationFrame(() => {
-                              setShowVariablePicker(true);
-                            });
-                          });
                         }}
                       >
-                        + Add variable
+                        Insert variable
                       </Button>
                     </div>
-                    <ChipTextarea
-                      id="prompt-textarea"
-                      value={promptMessage}
-                      availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties, showChangeStates)}
-                      onChange={(text) => {
+                    <div className="p-2">
+                      <StyledTextarea
+                        id="prompt-textarea"
+                        value={promptMessage}
+                        onChange={(text) => {
                         setPromptMessage(text);
                         const textarea = document.getElementById("prompt-textarea");
                         if (textarea) {
@@ -1068,8 +1465,134 @@ export default function Home() {
                           }
                         }
                       }}
-                      className="w-full min-h-[251px] resize-y border-[#CCCCCC]"
-                    />
+                        className="w-full min-h-[235px] resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                      />
+                    </div>
+                  </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <p className="text-sm font-medium text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "15px", lineHeight: "22px" }}>
+                      Tools
+                    </p>
+                    <p className="text-xs text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "12px", lineHeight: "16px" }}>
+                      Connect APIs the agent can use to take action or retrieve information.
+                    </p>
+
+                    {/* Added tool chips */}
+                    {queryToolAdded && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        <div
+                          ref={queryChipRef}
+                          className="relative inline-flex items-center gap-1.5 h-8 pl-2 pr-1 rounded-full border border-[#e0dede] bg-[#f5f5f5] cursor-pointer hover:bg-[#eaeaea] transition-colors"
+                          onClick={() => setShowQueryModal(true)}
+                          onMouseEnter={() => setQueryChipHover(true)}
+                          onMouseLeave={() => setQueryChipHover(false)}
+                        >
+                          <Database className="size-3.5 text-[#595555] shrink-0" />
+                          <span className="text-sm text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 485, fontSize: "13px" }}>
+                            Query Rippling Data
+                          </span>
+                          <button
+                            type="button"
+                            className="ml-0.5 p-0.5 rounded-full hover:bg-black/10 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setQueryToolAdded(false);
+                            }}
+                          >
+                            <X className="size-3.5 text-[#595555]" />
+                          </button>
+
+                          {/* Tooltip on hover */}
+                          {queryChipHover && (
+                            <div className="absolute left-0 bottom-full mb-2 z-50 bg-[#252528] text-white rounded-lg px-3 py-2.5 shadow-lg w-[260px] pointer-events-none">
+                              <p className="text-xs font-medium mb-1" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
+                                Query Rippling Data
+                              </p>
+                              <p className="text-[11px] text-white/70 mb-1.5" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>
+                                {queryScope === "all" ? "Scope: All Rippling data" : "Scope: Specific categories"}
+                              </p>
+                              {queryScope === "specific" && selectedObjects.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {selectedObjects.map((obj) => (
+                                    <span key={obj} className="text-[10px] bg-white/15 rounded px-1.5 py-0.5">
+                                      {obj}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="relative mt-2">
+                      <Button
+                        ref={toolButtonRef}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-[129px] h-8 text-sm bg-white border border-black/20 rounded-md px-3 gap-1.5 flex items-center justify-center"
+                        onClick={() => setShowToolPopover(!showToolPopover)}
+                      >
+                        Add tool
+                      </Button>
+                      {showToolPopover && (
+                        <div
+                          className="tool-popover fixed z-50 bg-white border border-[#e0dede] rounded-lg shadow-lg w-[280px] py-1"
+                          style={{
+                            top: `${toolPopoverPosition.top}px`,
+                            left: `${toolPopoverPosition.left}px`,
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left ${
+                              queryToolAdded ? "opacity-50 cursor-not-allowed" : "hover:bg-[#f5f5f5]"
+                            }`}
+                            disabled={queryToolAdded}
+                            onClick={() => {
+                              if (!queryToolAdded) {
+                                setShowToolPopover(false);
+                                setShowQueryModal(true);
+                              }
+                            }}
+                          >
+                            <Database className="size-4 text-[#595555] shrink-0" />
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>Query Rippling Data</span>
+                              <span className="text-xs text-[#8c8888]" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>
+                                {queryToolAdded ? "Already added" : "Search and retrieve internal data"}
+                              </span>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#f5f5f5] transition-colors text-left"
+                            onClick={() => setShowToolPopover(false)}
+                          >
+                            <Globe className="size-4 text-[#595555] shrink-0" />
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>Call public API</span>
+                              <span className="text-xs text-[#8c8888]" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>Connect to an external API endpoint</span>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#f5f5f5] transition-colors text-left"
+                            onClick={() => setShowToolPopover(false)}
+                          >
+                            <Terminal className="size-4 text-[#595555] shrink-0" />
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>Run a function</span>
+                              <span className="text-xs text-[#8c8888]" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>Execute a custom code function</span>
+                            </div>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div>
@@ -1383,18 +1906,41 @@ export default function Home() {
                       )}
                     </div>
                   )}
+
+                  <div className="flex flex-col gap-2">
+                    <label className="block text-base leading-6 text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "16px", lineHeight: "24px" }}>
+                      Max tokens
+                    </label>
+                    <div className="relative w-full">
+                      <input
+                        type="range"
+                        min="0"
+                        max="50"
+                        step="1"
+                        defaultValue="25"
+                        className="w-full h-1 bg-[#e1d8d2] rounded-full appearance-none cursor-pointer"
+                        style={{
+                          background: `linear-gradient(to right, #7A005D 0%, #7A005D 50%, #e1d8d2 50%, #e1d8d2 100%)`
+                        }}
+                      />
+                      <div className="flex justify-between mt-2 text-xs text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "11px", lineHeight: "14px" }}>
+                        <span>0</span>
+                        <span>50</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
-            {selectedNode === "sms" && (
+            {selectedFlowStep?.role === "widget" && (
               <div className="p-6">
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "20px", lineHeight: "28px", display: "flex", alignItems: "flex-end" }}>Send an SMS</h2>
+                    <h2 className="text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "20px", lineHeight: "28px", display: "flex", alignItems: "flex-end" }}>Update widget</h2>
                     <div className="flex items-center gap-4">
-                      <span className="text-sm text-black">ID: 12</span>
-                      <CloseIcon className="size-6 text-black cursor-pointer" />
+                      <span className="text-sm text-black">ID: 13</span>
+                      <CloseIcon className="size-6 text-black cursor-pointer" onClick={() => setSelectedCanvasStepId(null)} />
                     </div>
                   </div>
                 </div>
@@ -1405,1312 +1951,401 @@ export default function Home() {
                       Step name <span className="text-[#c3402c]">*</span>
                     </label>
                     <Input
-                      defaultValue="SMS 1"
+                      defaultValue="Widget Update 1"
                       className="w-full border-[#CCCCCC]"
                     />
                   </div>
 
                   <div>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-base leading-6 text-black mb-2" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                          Recipients <span className="text-[#c3402c]">*</span>
-                        </label>
-                        <div className="bg-white border border-[#CCCCCC] rounded-md p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <span className="text-sm text-[#595555]">To</span>
-                              <div className="flex items-center gap-2 px-2 py-1 bg-[#fafafa] border border-[#e3e3e3] rounded text-sm">
-                                <span>Sales department</span>
-                                <div className="w-px h-4 bg-[#e3e3e3]" />
-                                <span className="text-[10px] text-[#565659] opacity-80">AND</span>
-                                <span>United States</span>
-                                <CloseIcon className="size-4 cursor-pointer" />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <label className="block text-base leading-6 text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                            Message <span className="text-[#c3402c]">*</span>
-                          </label>
-                          <Button
-                            ref={smsAddVariableButtonRef}
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-6 text-xs bg-white border border-black/20 rounded-md px-2 gap-1 flex items-center justify-center"
-                            onClick={() => {
-                              // Save current cursor position
-                              const textarea = document.getElementById("sms-message");
-                              if (textarea) {
-                                const selection = window.getSelection();
-                                const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-                                let start = 0;
-                                let end = 0;
-                                if (range && textarea.contains(range.commonAncestorContainer)) {
-                                  const preCaretRange = range.cloneRange();
-                                  preCaretRange.selectNodeContents(textarea);
-                                  preCaretRange.setEnd(range.startContainer, range.startOffset);
-                                  start = preCaretRange.toString().length;
-                                  preCaretRange.setEnd(range.endContainer, range.endOffset);
-                                  end = preCaretRange.toString().length;
-                                } else {
-                                  // If no selection, use text length (cursor at end)
-                                  start = smsMessage.length;
-                                  end = smsMessage.length;
-                                }
-                                setSavedTextCursorPosition({ start, end });
-                              }
-                              setPickerContext("sms");
-                              setOpenedViaHotkey(false);
-                              setCursorPosition({ top: 0, left: 0 });
-                              // Use requestAnimationFrame to ensure button is rendered before positioning
-                              requestAnimationFrame(() => {
-                                requestAnimationFrame(() => {
-                                  setShowVariablePicker(true);
-                                });
-                              });
-                            }}
-                          >
-                            + Add variable
-                          </Button>
-                        </div>
-                        <ChipTextarea
-                          id="sms-message"
-                          value={smsMessage}
-                          availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties, showChangeStates)}
-                          onChange={(text) => {
-                            setSmsMessage(text);
-                            const textarea = document.getElementById("sms-message");
-                            if (textarea) {
-                              const selection = window.getSelection();
-                              const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-                              let cursorPos = 0;
-                              if (range && textarea.contains(range.commonAncestorContainer)) {
-                                const preCaretRange = range.cloneRange();
-                                preCaretRange.selectNodeContents(textarea);
-                                preCaretRange.setEnd(range.endContainer, range.endOffset);
-                                cursorPos = preCaretRange.toString().length;
-                              }
-                              const textBeforeCursor = text.substring(0, cursorPos);
-                              
-                              // Check if user typed "{{"
-                              if (textBeforeCursor.endsWith("{{")) {
-                                // Save cursor position
-                                setSavedTextCursorPosition({ start: cursorPos, end: cursorPos });
-                                
-                                setPickerContext("sms");
-                                setShowVariablePicker(true);
-                                setVariableSearchQuery("");
-                                setOpenedViaHotkey(true);
-                                
-                                // Calculate position using caret-based measurement
-                                const calculatePosition = () => {
-                                  const caretPos = getCaretLinePosition(textarea as HTMLElement);
-                                  
-                                  if (caretPos) {
-                                    // Position popover exactly 8px below the caret's line
-                                    const popoverTop = caretPos.lineBottom + 8;
-                                    const popoverWidth = 400;
-                                    const textareaRect = textarea.getBoundingClientRect();
-                                    const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                    
-                                    setCursorPosition({ top: caretPos.lineBottom, left: caretPos.lineLeft });
-                                    setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                  } else {
-                                    // Fallback: use textarea position
-                                    const textareaRect = textarea.getBoundingClientRect();
-                                    const computedStyle = window.getComputedStyle(textarea);
-                                    const lineHeight = parseFloat(computedStyle.lineHeight) || 24;
-                                    const paddingTop = parseFloat(computedStyle.paddingTop) || 8;
-                                    const lineBottom = textareaRect.top + paddingTop + lineHeight;
-                                    const popoverTop = lineBottom + 8;
-                                    const popoverWidth = 400;
-                                    const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                    
-                                    setCursorPosition({ top: lineBottom, left: textareaRect.left + 12 });
-                                    setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                  }
-                                  
-                                  // Reset the flag after a short delay to allow useEffect to run normally after
-                                  setTimeout(() => {
-                                    justCalculatedPositionRef.current = false;
-                                  }, 100);
-                                };
-                                
-                                // Set flag to prevent useEffect from overriding
-                                justCalculatedPositionRef.current = true;
-                                
-                                // Calculate immediately
-                                calculatePosition();
-                                
-                                // Also recalculate in next frame to ensure accuracy after DOM updates
-                                requestAnimationFrame(() => {
-                                  requestAnimationFrame(calculatePosition);
-                                });
-                              } else if (showVariablePicker && pickerContext === "sms" && textBeforeCursor.includes("{{")) {
-                                // Extract search query after "{{"
-                                const lastOpenBrace = textBeforeCursor.lastIndexOf("{{");
-                                const searchText = textBeforeCursor.substring(lastOpenBrace + 2);
-                                setVariableSearchQuery(searchText);
-                                
-                                // If user typed "{{" again, recalculate position
-                                if (textBeforeCursor.endsWith("{{")) {
-                                  setOpenedViaHotkey(true);
-                                  const calculatePosition = () => {
-                                    const caretPos = getCaretLinePosition(textarea as HTMLElement);
-                                    
-                                    if (caretPos) {
-                                      // Position popover exactly 8px below the caret's line
-                                      const popoverTop = caretPos.lineBottom + 8;
-                                      const popoverWidth = 400;
-                                      const textareaRect = textarea.getBoundingClientRect();
-                                      const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                      
-                                      setCursorPosition({ top: caretPos.lineBottom, left: caretPos.lineLeft });
-                                      setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                    } else {
-                                      // Fallback: use textarea position
-                                      const textareaRect = textarea.getBoundingClientRect();
-                                      const computedStyle = window.getComputedStyle(textarea);
-                                      const lineHeight = parseFloat(computedStyle.lineHeight) || 24;
-                                      const paddingTop = parseFloat(computedStyle.paddingTop) || 8;
-                                      const lineBottom = textareaRect.top + paddingTop + lineHeight;
-                                      const popoverTop = lineBottom + 8;
-                                      const popoverWidth = 400;
-                                      const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                      
-                                      setCursorPosition({ top: lineBottom, left: textareaRect.left + 12 });
-                                      setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                    }
-                                    
-                                    // Reset the flag after a short delay to allow useEffect to run normally after
-                                    setTimeout(() => {
-                                      justCalculatedPositionRef.current = false;
-                                    }, 100);
-                                  };
-                                  
-                                  // Set flag to prevent useEffect from overriding
-                                  justCalculatedPositionRef.current = true;
-                                  
-                                  // Calculate immediately
-                                  calculatePosition();
-                                  
-                                  // Also recalculate in next frame
-                                  requestAnimationFrame(() => {
-                                    requestAnimationFrame(calculatePosition);
-                                  });
-                                }
-                              }
-                            }
-                          }}
-                          onKeyDown={(e) => {
-                            if (showVariablePicker && pickerContext === "sms") {
-                              const textarea = e.currentTarget;
-                              const selection = window.getSelection();
-                              const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-                              let cursorPos = 0;
-                              if (range && textarea.contains(range.commonAncestorContainer)) {
-                                const preCaretRange = range.cloneRange();
-                                preCaretRange.selectNodeContents(textarea);
-                                preCaretRange.setEnd(range.endContainer, range.endOffset);
-                                cursorPos = preCaretRange.toString().length;
-                              }
-                              const textBeforeCursor = smsMessage.substring(0, cursorPos);
-                              
-                              if (textBeforeCursor.includes("{{")) {
-                                const lastOpenBrace = textBeforeCursor.lastIndexOf("{{");
-                                const searchText = textBeforeCursor.substring(lastOpenBrace + 2);
-                                setVariableSearchQuery(searchText);
-                              }
-                            }
-                          }}
-                          className="w-full h-[204px] border-[#CCCCCC] resize-none"
-                          placeholder="Enter your message here..."
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-base leading-6 text-black mb-2" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                          Time zone <span className="text-[#c3402c]">*</span>
-                        </label>
-                        <div className="relative">
-                          <Input
-                            defaultValue="UTC (UTC+0)"
-                            className="w-full border-[#bfbebe] pr-10"
-                          />
-                          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 size-6 text-black" />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-base leading-6 text-black mb-2" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                          Locale <span className="text-[#c3402c]">*</span>
-                        </label>
-                        <div className="relative">
-                          <Input
-                            defaultValue="United States (English)"
-                            className="w-full border-[#bfbebe] pr-10"
-                          />
-                          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 size-6 text-black" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Footer - Fixed at bottom */}
-          <div className="border-t border-[#e0dede] bg-white p-4 flex items-center justify-between h-16 shrink-0">
-            <div className="flex items-center gap-3">
-              <Button variant="destructive" className="bg-[#bb3d2a] text-white hover:bg-[#bb3d2a]/90 h-10">
-                Remove
-              </Button>
-              <Button variant="outline" className="border-[#d3d3d3] h-10">
-                Duplicate
-              </Button>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button variant="outline" className="border-[#d3d3d3] h-10">
-                Cancel
-              </Button>
-            <Button className="bg-[#7A005D] text-white hover:bg-[#7A005D]/90 h-10">
-              Save
-            </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Center Panel - Workflow Visualization */}
-        <div className="flex-1 flex items-center justify-center relative">
-          <div className="flex flex-col items-center">
-            {/* Workflow Trigger */}
-            <Card 
-              className={`w-[250px] h-[62px] border flex items-center shadow-none rounded-md cursor-pointer transition-all ${
-                selectedNode === "trigger" 
-                  ? "border-2 border-[#5aa5e7] bg-white opacity-100" 
-                  : "opacity-40 border-[#e0dede]"
-              }`}
-              onClick={() => setSelectedNode("trigger")}
-            >
-              <div className="px-3 flex items-center gap-3 w-full h-full">
-                <TriggerIcon className={`size-6 shrink-0 ${selectedNode === "trigger" ? "text-black" : "text-[#8c8888]"}`} />
-                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "12px", lineHeight: "16px", color: "#6F6F72", flex: "none", alignSelf: "stretch" }}>Workflow trigger</p>
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "16px", lineHeight: "24px", color: "#252528", flex: "none", alignSelf: "stretch" }}>{showChangeStates ? "Profile change is effective" : "rwebb_object is created"}</p>
-                </div>
-              </div>
-            </Card>
-
-            {/* Arrow connecting to AI Prompt */}
-            <div className="relative h-[50px] flex items-end justify-center">
-              <div 
-                className="h-[calc(100%-8px)] w-0 border-l border-[#8c8888] border-dashed"
-                style={{ borderWidth: '1px' }}
-              />
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[8px] border-l-transparent border-r-transparent border-t-[#8c8888]" />
-            </div>
-
-            {/* AI Prompt Step */}
-            <Card 
-              className={`w-[250px] h-[62px] border flex items-center shadow-none rounded-md cursor-pointer transition-all ${
-                selectedNode === "aiPrompt" 
-                  ? "border-2 border-[#5aa5e7] bg-white opacity-100" 
-                  : "opacity-40 border-[#e0dede]"
-              }`}
-              onClick={() => setSelectedNode("aiPrompt")}
-            >
-              <div className="px-3 flex items-center gap-3 w-full h-full">
-                <AIIcon className={`size-6 shrink-0 ${selectedNode === "aiPrompt" ? "" : "opacity-40"}`} />
-                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "12px", lineHeight: "16px", color: "#6F6F72", flex: "none", alignSelf: "stretch" }}>AI step</p>
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "16px", lineHeight: "24px", color: "#252528", flex: "none", alignSelf: "stretch" }}>AI prompt</p>
-                </div>
-              </div>
-            </Card>
-
-            {/* Arrow connecting to SMS */}
-            <div className="relative h-[50px] flex items-end justify-center">
-              <div 
-                className="h-[calc(100%-8px)] w-0 border-l border-[#8c8888] border-dashed"
-                style={{ borderWidth: '1px' }}
-              />
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[8px] border-l-transparent border-r-transparent border-t-[#8c8888]" />
-        </div>
-
-            {/* SMS Step */}
-            <Card 
-              className={`w-[250px] h-[62px] border flex items-center shadow-none rounded-md cursor-pointer transition-all ${
-                selectedNode === "sms" 
-                  ? "border-2 border-[#5aa5e7] bg-white opacity-100" 
-                  : "opacity-40 border-[#e0dede]"
-              }`}
-              onClick={() => setSelectedNode("sms")}
-            >
-              <div className="px-3 flex items-center gap-3 w-full h-full">
-                <SMSIcon className={`size-6 shrink-0 ${selectedNode === "sms" ? "text-black" : "text-[#8c8888]"}`} />
-                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "12px", lineHeight: "16px", color: "#6F6F72", flex: "none", alignSelf: "stretch" }}>Send an SMS</p>
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "16px", lineHeight: "24px", color: "#252528", flex: "none", alignSelf: "stretch" }}>SMS 1</p>
-                </div>
-              </div>
-            </Card>
-
-            {/* Arrow connecting to End */}
-            <div className="relative h-[50px] flex items-end justify-center">
-              <div 
-                className="h-[calc(100%-8px)] w-0 border-l border-[#8c8888] border-dashed"
-                style={{ borderWidth: '1px' }}
-              />
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[8px] border-l-transparent border-r-transparent border-t-[#8c8888]" />
-            </div>
-
-            <p className="text-sm text-[#8c8888] mt-2">End workflow</p>
-          </div>
-
-          {/* Zoom Controls */}
-          <div className="absolute top-4 right-4 flex items-center gap-2">
-            <div className="flex items-center border border-[#e0dede] bg-white rounded">
-              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-none border-r border-[#e0dede]">
-                <ZoomOut className="size-4" />
-              </Button>
-              <div className="px-3 py-2 text-xs font-bold text-[#502d3c]">100%</div>
-              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-none border-l border-[#e0dede]">
-                <ZoomIn className="size-4" />
-              </Button>
-            </div>
-            <Button variant="outline" size="icon" className="h-8 w-8 border-[#e0dede]">
-              <Maximize2 className="size-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
-      )}
-      
-      {/* Opt. 2 - Clone of Opt. 1 */}
-      {workflowOption === "opt2" && (
-      <div className="flex h-screen pt-32">
-        {/* Left Panel - Form */}
-        <div className="w-[600px] border-r border-[#e0dede] bg-white flex flex-col h-full">
-          <div className="flex-1 overflow-y-auto">
-            {selectedNode === "trigger" && (
-              <div className="p-6">
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "20px", lineHeight: "28px", display: "flex", alignItems: "flex-end" }}>Trigger details</h2>
-                    <CloseIcon className="size-6 text-black cursor-pointer" onClick={() => setSelectedNode("aiPrompt")} />
-                  </div>
-                </div>
-                <div className="bg-[#e0dede] h-px mb-6" />
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-sm font-medium text-black mb-2">Event</p>
-                    <p className="text-sm text-black mb-4">This workflow will trigger based on the following event</p>
-                    <div className="bg-white border border-[#e0dede] rounded-lg h-[72px] px-6 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <TriggerIcon className="size-6 text-[#716f6c]" />
-                        <p className="text-sm font-medium text-black">{showChangeStates ? "Profile change is effective" : "rwebb_object is created"}</p>
-                      </div>
-                      <Button variant="ghost" className="text-[#4a6ba6] hover:text-[#4a6ba6]">
-                        Change
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {selectedNode === "aiPrompt" && (
-              <div className="p-6">
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "20px", lineHeight: "28px", display: "flex", alignItems: "flex-end" }}>AI prompt</h2>
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm text-black">ID: 12</span>
-                      <CloseIcon className="size-6 text-black cursor-pointer" />
-                    </div>
-                  </div>
-                  <p className="text-black mb-6" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "16px", lineHeight: "24px", flex: "none", alignSelf: "stretch" }}>
-                    A flexible, general-purpose chain action that allows users to define custom AI transformations
-                  </p>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
                     <label className="block text-base leading-6 text-black mb-2" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                      Step name
-                    </label>
-                    <Input
-                      defaultValue="Prompt 1"
-                      className="w-full"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-base leading-6 text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                        Prompt <span className="text-[#c3402c]">*</span>
-                      </label>
-                      <Button
-                        ref={promptAddVariableButtonRef}
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-6 text-xs bg-white border border-black/20 rounded-md px-2 gap-1 flex items-center justify-center"
-                        onClick={() => {
-                          // Save current cursor position
-                          const textarea = document.getElementById("prompt-textarea");
-                          if (textarea) {
-                            const selection = window.getSelection();
-                            const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-                            let start = 0;
-                            let end = 0;
-                            if (range && textarea.contains(range.commonAncestorContainer)) {
-                              const preCaretRange = range.cloneRange();
-                              preCaretRange.selectNodeContents(textarea);
-                              preCaretRange.setEnd(range.startContainer, range.startOffset);
-                              start = preCaretRange.toString().length;
-                              preCaretRange.setEnd(range.endContainer, range.endOffset);
-                              end = preCaretRange.toString().length;
-                            } else {
-                              // If no selection, use text length (cursor at end)
-                              start = promptMessage.length;
-                              end = promptMessage.length;
-                            }
-                            setSavedTextCursorPosition({ start, end });
-                          }
-                          setPickerContext("aiPrompt");
-                          setOpenedViaHotkey(false);
-                          setCursorPosition({ top: 0, left: 0 });
-                          // Use requestAnimationFrame to ensure button is rendered before positioning
-                          requestAnimationFrame(() => {
-                            requestAnimationFrame(() => {
-                              setShowVariablePicker(true);
-                            });
-                          });
-                        }}
-                      >
-                        + Add variable
-                      </Button>
-                    </div>
-                    <div className="relative">
-                      <ChipTextarea
-                        id="prompt-textarea"
-                        value={promptMessage}
-                        availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties, showChangeStates)}
-                        onChange={(text) => {
-                          setPromptMessage(text);
-                          const textarea = document.getElementById("prompt-textarea");
-                          if (textarea) {
-                            const selection = window.getSelection();
-                            const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-                            let cursorPos = 0;
-                            if (range && textarea.contains(range.commonAncestorContainer)) {
-                              const preCaretRange = range.cloneRange();
-                              preCaretRange.selectNodeContents(textarea);
-                              preCaretRange.setEnd(range.endContainer, range.endOffset);
-                              cursorPos = preCaretRange.toString().length;
-                            }
-                            const textBeforeCursor = text.substring(0, cursorPos);
-                            
-                            // Check if user typed "{{"
-                            if (textBeforeCursor.endsWith("{{")) {
-                              // Save cursor position
-                              setSavedTextCursorPosition({ start: cursorPos, end: cursorPos });
-                              
-                              setPickerContext("aiPrompt");
-                              setShowVariablePicker(true);
-                              setVariableSearchQuery("");
-                              setOpenedViaHotkey(true);
-                              
-                              // Calculate position using caret-based measurement
-                              const calculatePosition = () => {
-                                const caretPos = getCaretLinePosition(textarea as HTMLElement);
-                                
-                                if (caretPos) {
-                                  // Position popover exactly 8px below the caret's line
-                                  const popoverTop = caretPos.lineBottom + 8;
-                                  const popoverWidth = 400;
-                                  const textareaRect = textarea.getBoundingClientRect();
-                                  const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                  
-                                  setCursorPosition({ top: caretPos.lineBottom, left: caretPos.lineLeft });
-                                  setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                } else {
-                                  // Fallback: use textarea position
-                                  const textareaRect = textarea.getBoundingClientRect();
-                                  const computedStyle = window.getComputedStyle(textarea);
-                                  const lineHeight = parseFloat(computedStyle.lineHeight) || 24;
-                                  const paddingTop = parseFloat(computedStyle.paddingTop) || 8;
-                                  const lineBottom = textareaRect.top + paddingTop + lineHeight;
-                                  const popoverTop = lineBottom + 8;
-                                  const popoverWidth = 400;
-                                  const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                  
-                                  setCursorPosition({ top: lineBottom, left: textareaRect.left + 12 });
-                                  setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                }
-                                
-                                setTimeout(() => {
-                                  justCalculatedPositionRef.current = false;
-                                }, 100);
-                              };
-                              
-                              justCalculatedPositionRef.current = true;
-                              calculatePosition();
-                              requestAnimationFrame(() => {
-                                requestAnimationFrame(calculatePosition);
-                              });
-                            } else if (showVariablePicker && pickerContext === "aiPrompt" && textBeforeCursor.includes("{{")) {
-                              // Extract search query after "{{"
-                              const lastOpenBrace = textBeforeCursor.lastIndexOf("{{");
-                              const searchText = textBeforeCursor.substring(lastOpenBrace + 2);
-                              setVariableSearchQuery(searchText);
-                              
-                              // If user typed "{{" again, recalculate position
-                              if (textBeforeCursor.endsWith("{{")) {
-                                setOpenedViaHotkey(true);
-                                const calculatePosition = () => {
-                                  const caretPos = getCaretLinePosition(textarea as HTMLElement);
-                                  
-                                  if (caretPos) {
-                                    // Position popover exactly 8px below the caret's line
-                                    const popoverTop = caretPos.lineBottom + 8;
-                                    const popoverWidth = 400;
-                                    const textareaRect = textarea.getBoundingClientRect();
-                                    const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                    
-                                    setCursorPosition({ top: caretPos.lineBottom, left: caretPos.lineLeft });
-                                    setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                  } else {
-                                    // Fallback: use textarea position
-                                    const textareaRect = textarea.getBoundingClientRect();
-                                    const computedStyle = window.getComputedStyle(textarea);
-                                    const lineHeight = parseFloat(computedStyle.lineHeight) || 24;
-                                    const paddingTop = parseFloat(computedStyle.paddingTop) || 8;
-                                    const lineBottom = textareaRect.top + paddingTop + lineHeight;
-                                    const popoverTop = lineBottom + 8;
-                                    const popoverWidth = 400;
-                                    const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                    
-                                    setCursorPosition({ top: lineBottom, left: textareaRect.left + 12 });
-                                    setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                  }
-                                  
-                                  setTimeout(() => {
-                                    justCalculatedPositionRef.current = false;
-                                  }, 100);
-                                };
-                                
-                                justCalculatedPositionRef.current = true;
-                                calculatePosition();
-                                requestAnimationFrame(() => {
-                                  requestAnimationFrame(calculatePosition);
-                                });
-                              }
-                            }
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (showVariablePicker && pickerContext === "aiPrompt") {
-                            const textarea = e.currentTarget;
-                            const selection = window.getSelection();
-                            const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-                            let cursorPos = 0;
-                            if (range && textarea.contains(range.commonAncestorContainer)) {
-                              const preCaretRange = range.cloneRange();
-                              preCaretRange.selectNodeContents(textarea);
-                              preCaretRange.setEnd(range.endContainer, range.endOffset);
-                              cursorPos = preCaretRange.toString().length;
-                            }
-                            const textBeforeCursor = promptMessage.substring(0, cursorPos);
-                            
-                            if (textBeforeCursor.includes("{{")) {
-                              const lastOpenBrace = textBeforeCursor.lastIndexOf("{{");
-                              const searchText = textBeforeCursor.substring(lastOpenBrace + 2);
-                              setVariableSearchQuery(searchText);
-                            }
-                          }
-                        }}
-                        placeholder="Enter your prompt here..."
-                        className="w-full min-h-[251px]"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-base leading-6 text-black mb-2" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                      Output format
+                      Widget name <span className="text-[#c3402c]">*</span>
                     </label>
                     <div className="relative">
                       <select
-                        value={outputFormat}
-                        onChange={(e) => setOutputFormat(e.target.value)}
+                        value={widgetConfig}
+                        onChange={(e) => setWidgetConfig(e.target.value)}
                         className="w-full h-10 px-3 py-2 text-base leading-6 border border-[#CCCCCC] rounded-md bg-white appearance-none pr-10 focus:outline-none focus:ring-2 focus:ring-[#5aa5e7] focus:border-[#5aa5e7]"
                         style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, color: "#000000" }}
                       >
-                        <option value="Text">Text</option>
-                        <option value="JSON">JSON</option>
+                        <option value="Homepage Compliance Widget">Homepage Compliance Widget</option>
+                        <option value="Team Dashboard Widget">Team Dashboard Widget</option>
+                        <option value="Manager Overview Widget">Manager Overview Widget</option>
+                        <option value="HR Summary Widget">HR Summary Widget</option>
                       </select>
                       <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 size-5 text-black pointer-events-none" />
                     </div>
                   </div>
-                  {outputFormat === "JSON" && (
-                    <div className="space-y-2.5">
-                      <div>
-                        <h3 className="text-sm font-medium text-black mb-1">JSON Schema</h3>
-                        <p className="text-xs text-black mb-4">
-                          The model will generate a JSON object that matches this schema.
+
+                  <div className="space-y-3">
+                    <div>
+                      <h3 className="text-sm font-medium text-black mb-1">
+                        Update data <span className="text-[#c3402c]">*</span>
+                      </h3>
+                      <p className="text-xs text-black mb-3">
+                        Map Health check output fields to the widget.
+                      </p>
+                    </div>
+
+                    {/* Auto-map toggle */}
+                    <div className="flex items-center justify-between bg-[#f9f7f6] border border-[#e0dede] rounded-lg px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`relative w-9 h-5 rounded-full cursor-pointer transition-colors ${autoMapEnabled ? "bg-[#7A005D]" : "bg-[#d3d3d3]"}`} onClick={() => setAutoMapEnabled(!autoMapEnabled)}>
+                          <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${autoMapEnabled ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-black">Auto-map from Health check</p>
+                          <p className="text-xs text-[#8c8888]">Automatically pass all output fields to the widget</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Summary when auto-map is on */}
+                    {autoMapEnabled && (
+                      <div className="border border-[#e0dede] rounded-lg overflow-hidden">
+                        <div className="flex items-center justify-between px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="size-2 rounded-full bg-[#22c55e]" />
+                            <span className="text-sm text-black">{autoMappedFields.length} fields mapped from <span className="font-medium">Health check</span> output</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="text-xs text-[#4a6ba6] hover:underline"
+                            onClick={() => setShowMappingDetails(!showMappingDetails)}
+                          >
+                            {showMappingDetails ? "Hide details" : "View mappings"}
+                          </button>
+                        </div>
+
+                        {/* Expandable mapping details */}
+                        {showMappingDetails && (
+                          <div className="border-t border-[#e0dede]">
+                            <div className="grid grid-cols-[1fr_auto] gap-x-4 px-4 py-2 bg-[#f9f7f6] text-xs font-medium text-[#8c8888] uppercase tracking-wide">
+                              <span>Field</span>
+                              <span>Source</span>
+                            </div>
+                            {autoMappedFields.map((mapping, i) => (
+                              <div key={i} className={`grid grid-cols-[1fr_auto] gap-x-4 px-4 py-2 text-sm ${i % 2 === 0 ? "bg-white" : "bg-[#fafafa]"}`}>
+                                <span className="text-[#252528] font-mono text-xs">{mapping.field}</span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#512f3e]/10 border border-[#512f3e]/20 rounded-md text-xs font-medium text-[#512f3e]">
+                                  {mapping.source}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Manual message when auto-map is off */}
+                    {!autoMapEnabled && (
+                      <div className="border border-[#e0dede] rounded-lg px-4 py-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="size-2 rounded-full bg-[#f59e0b]" />
+                          <span className="text-sm text-black">Manual mapping required</span>
+                        </div>
+                        <p className="text-xs text-[#8c8888]">
+                          Configure the widget data mapping in your widget settings or re-enable auto-map to use Health check output directly.
                         </p>
                       </div>
-                      
-                      {/* Tab switcher */}
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex flex-row items-center gap-px h-6 rounded-lg">
-                          <button
-                            type="button"
-                            onClick={() => setJsonSchemaMode("basic")}
-                            className={`flex flex-row justify-center items-center h-6 min-h-6 text-xs font-medium rounded border-0 outline-none transition-colors ${
-                              jsonSchemaMode === "basic"
-                                ? "bg-[#E0DEDB] text-black px-2"
-                                : "bg-transparent text-black w-[70px]"
-                            }`}
-                          >
-                            Basic
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setJsonSchemaMode("advanced")}
-                            className={`flex flex-row justify-center items-center h-6 min-h-6 text-xs font-medium rounded border-0 outline-none transition-colors ${
-                              jsonSchemaMode === "advanced"
-                                ? "bg-[#E0DEDB] text-black px-2"
-                                : "bg-transparent text-black w-[70px]"
-                            }`}
-                          >
-                            Advanced
-                          </button>
-                        </div>
-                        <div className="relative">
-                          <Button
-                            ref={generateButtonRef}
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-6 text-xs bg-white border border-black/20 rounded-md px-2 gap-1 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                            disabled={isGeneratingSchema}
-                            onClick={() => setShowGeneratePopover(!showGeneratePopover)}
-                          >
-                            Generate
-                          </Button>
-                          
-                          {showGeneratePopover && (
-                            <div 
-                              className="generate-popover fixed z-50 bg-white border border-[#e0dede] rounded-lg shadow-md w-[452px] p-3 flex flex-col gap-4"
-                              style={{
-                                top: `${popoverPosition.top}px`,
-                                right: `${popoverPosition.right}px`,
-                              }}
-                            >
-                              <Textarea
-                                placeholder="Describe how you want the model to respond, and we'll generate a JSON schema"
-                                value={generatePrompt}
-                                onChange={(e) => setGeneratePrompt(e.target.value)}
-                                className="w-full min-h-[80px] max-h-[200px] resize-none border-[#CCCCCC] text-sm overflow-y-auto"
-                              />
-                              <div className="flex justify-end">
-                                <Button
-                                  type="button"
-                                  className="bg-[#7A005D] text-white hover:bg-[#7A005D]/90 h-9 px-4 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  disabled={isGeneratingSchema}
-                                  onClick={async () => {
-                                    if (generatePrompt.trim() && !isGeneratingSchema) {
-                                      setIsGeneratingSchema(true);
-                                      setShowGeneratePopover(false);
-                                      
-                                      // Simulate API call delay
-                                      await new Promise(resolve => setTimeout(resolve, 1500));
-                                      
-                                      // Generate JSON schema based on prompt
-                                      const properties = generateSchemaFromPrompt(generatePrompt);
-                                      const lowerPrompt = generatePrompt.toLowerCase();
-                                      
-                                      // Determine title from prompt
-                                      let title = "GeneratedSchema";
-                                      if (lowerPrompt.includes("welcome") && lowerPrompt.includes("message")) {
-                                        title = "WelcomeMessage";
-                                      } else if (lowerPrompt.includes("schema for")) {
-                                        // Try to extract a title from the prompt
-                                        const match = generatePrompt.match(/schema for (?:a |an )?([^,\.]+)/i);
-                                        if (match && match[1]) {
-                                          title = match[1].trim()
-                                            .split(/\s+/)
-                                            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                                            .join("");
-                                        }
-                                      }
-                                      
-                                      const generatedSchema = {
-                                        "$schema": "http://json-schema.org/draft-07/schema#",
-                                        title: title,
-                                        type: "object",
-                                        properties: properties,
-                                      };
-                                      
-                                      // Update based on current mode
-                                      if (jsonSchemaMode === "advanced") {
-                                        setJsonSchemaText(JSON.stringify(generatedSchema, null, 2));
-                                      } else {
-                                        // Convert to properties array for basic mode
-                                        // Note: Basic mode doesn't support nested objects, so we flatten them
-                                        const propertiesArray: JsonProperty[] = [];
-                                        Object.entries(generatedSchema.properties).forEach(([name, prop]: [string, any]) => {
-                                          if (prop.type === "object" && prop.properties) {
-                                            // For nested objects, add each nested property with a prefix
-                                            Object.entries(prop.properties).forEach(([nestedName, nestedProp]: [string, any]) => {
-                                              propertiesArray.push({
-                                                id: `prop-${name}-${nestedName}-${Date.now()}`,
-                                                name: `${name}.${nestedName}`,
-                                                type: nestedProp.type === "string" ? "STR" : nestedProp.type === "number" ? "NUM" : nestedProp.type === "boolean" ? "BOOL" : "STR",
-                                                description: nestedProp.description || "",
-                                              });
-                                            });
-                                          } else {
-                                            propertiesArray.push({
-                                              id: `prop-${name}-${Date.now()}`,
-                                              name,
-                                              type: prop.type === "string" ? "STR" : prop.type === "number" ? "NUM" : prop.type === "boolean" ? "BOOL" : "STR",
-                                              description: prop.description || "",
-                                            });
-                                          }
-                                        });
-                                        setJsonProperties(propertiesArray);
-                                      }
-                                      
-                                      setGeneratePrompt("");
-                                      setIsGeneratingSchema(false);
-                                    }
-                                  }}
-                                >
-                                  Create
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {jsonSchemaMode === "basic" && (
-                        <div className="space-y-4">
-                          {isGeneratingSchema ? (
-                            <div className="space-y-4">
-                              <div className="h-4 bg-[#e1d8d2] rounded w-[76px]" />
-                              <div className="h-4 bg-[#e1d8d2] rounded w-[421px]" />
-                              <div className="h-4 bg-[#e1d8d2] rounded w-[357px]" />
-                              <div className="h-4 bg-[#e1d8d2] rounded w-[330px]" />
-                              <div className="h-4 bg-[#e1d8d2] rounded w-[168px]" />
-                            </div>
-                          ) : (
-                            jsonProperties.map((property) => (
-                            <div key={property.id} className="flex gap-4 items-start">
-                              <Input
-                                placeholder="Name"
-                                value={property.name}
-                                onChange={(e) => {
-                                  setJsonProperties(
-                                    jsonProperties.map((p) =>
-                                      p.id === property.id
-                                        ? { ...p, name: e.target.value }
-                                        : p
-                                    )
-                                  );
-                                }}
-                                className="flex-1 h-10"
-                              />
-                              <div className="relative w-[100px]">
-                                <select
-                                  value={property.type}
-                                  onChange={(e) => {
-                                    setJsonProperties(
-                                      jsonProperties.map((p) =>
-                                        p.id === property.id
-                                          ? { ...p, type: e.target.value }
-                                          : p
-                                      )
-                                    );
-                                  }}
-                                  className="w-full h-10 px-3 py-2 text-base leading-6 border border-[#CCCCCC] rounded-md bg-white appearance-none pr-8 focus:outline-none focus:ring-2 focus:ring-[#5aa5e7] focus:border-[#5aa5e7]"
-                                  style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, color: "#000000" }}
-                                >
-                                  <option value="STR">STR</option>
-                                  <option value="NUM">NUM</option>
-                                  <option value="BOOL">BOOL</option>
-                                  <option value="OBJ">OBJ</option>
-                                  <option value="ARR">ARR</option>
-                                </select>
-                                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 size-4 text-black pointer-events-none" />
-                              </div>
-                              <Input
-                                placeholder="Description"
-                                value={property.description}
-                                onChange={(e) => {
-                                  setJsonProperties(
-                                    jsonProperties.map((p) =>
-                                      p.id === property.id
-                                        ? { ...p, description: e.target.value }
-                                        : p
-                                    )
-                                  );
-                                }}
-                                className="flex-1 h-10"
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-10 w-10 text-[#8c8888] hover:text-red-600"
-                                onClick={() => {
-                                  setJsonProperties(
-                                    jsonProperties.filter((p) => p.id !== property.id)
-                                  );
-                                }}
-                              >
-                                <TrashIcon className="size-4" />
-                              </Button>
-                            </div>
-                          ))
-                          )}
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="w-[129px] h-8 px-3 gap-1.5 bg-white border border-black/20 rounded-md flex items-center justify-center"
-                            onClick={() => {
-                              setJsonProperties([
-                                ...jsonProperties,
-                                {
-                                  id: `prop-${Date.now()}`,
-                                  name: "",
-                                  type: "STR",
-                                  description: "",
-                                },
-                              ]);
-                            }}
-                          >
-                            + Add property
-                          </Button>
-                        </div>
-                      )}
-
-                      {jsonSchemaMode === "advanced" && (
-                        <div className="border border-[#CCCCCC] rounded-lg bg-white overflow-hidden">
-                          {isGeneratingSchema ? (
-                            <div className="p-4 space-y-2">
-                              <div className="h-4 bg-[#e1d8d2] rounded w-[76px]" />
-                              <div className="h-4 bg-[#e1d8d2] rounded w-[421px]" />
-                              <div className="h-4 bg-[#e1d8d2] rounded w-[357px]" />
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex border-b border-[#CCCCCC]">
-                                <div className="w-12 border-r border-[#CCCCCC] bg-[#fafafa] p-2">
-                                  {jsonSchemaText.split("\n").map((_, i) => (
-                                    <div key={i} className="text-xs text-[#8c8888] leading-6 font-mono">
-                                      {i + 1}
-                                    </div>
-                                  ))}
-                                </div>
-                                <Textarea
-                                  value={jsonSchemaText}
-                                  onChange={(e) => setJsonSchemaText(e.target.value)}
-                                  className="flex-1 border-0 rounded-none font-mono text-sm resize-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                                  style={{ minHeight: "195px" }}
-                                />
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             )}
 
-            {selectedNode === "sms" && (
+            {selectedFlowStep?.role === "custom" && (
               <div className="p-6">
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "20px", lineHeight: "28px", display: "flex", alignItems: "flex-end" }}>Send an SMS</h2>
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm text-black">ID: 12</span>
-                      <CloseIcon className="size-6 text-black cursor-pointer" />
-                    </div>
+                    <h2
+                      className="text-black"
+                      style={{
+                        fontFamily: "'Basel Grotesk', sans-serif",
+                        fontWeight: 535,
+                        fontSize: "20px",
+                        lineHeight: "28px",
+                        display: "flex",
+                        alignItems: "flex-end",
+                      }}
+                    >
+                      {selectedFlowStep.title}
+                    </h2>
+                    <CloseIcon
+                      className="size-6 text-black cursor-pointer"
+                      onClick={() => setSelectedCanvasStepId(null)}
+                    />
                   </div>
+                  <p
+                    className="text-[#595555] text-sm mb-2 uppercase tracking-wide"
+                    style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
+                  >
+                    {selectedFlowStep.categoryLabel}
+                  </p>
+                  <p
+                    className="text-black"
+                    style={{
+                      fontFamily: "'Basel Grotesk', sans-serif",
+                      fontWeight: 430,
+                      fontSize: "15px",
+                      lineHeight: "22px",
+                    }}
+                  >
+                    This action was added from the canvas. Configure fields and connections in the full
+                    workflow editor.
+                  </p>
                 </div>
                 <div className="bg-[#e0dede] h-px mb-6" />
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-base leading-6 text-black mb-2" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                      Step name <span className="text-[#c3402c]">*</span>
+                    <label
+                      className="block text-base leading-6 text-black mb-2"
+                      style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
+                    >
+                      Step name
                     </label>
-                    <Input
-                      defaultValue="SMS 1"
-                      className="w-full"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-base leading-6 text-black mb-2" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                      Recipients <span className="text-[#c3402c]">*</span>
-                    </label>
-                    <div className="bg-white border border-[#CCCCCC] rounded-md p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <span className="text-sm text-[#595555]">To</span>
-                          <div className="flex items-center gap-2 px-2 py-1 bg-[#fafafa] border border-[#e3e3e3] rounded text-sm">
-                            <span>Sales department</span>
-                            <div className="w-px h-4 bg-[#e3e3e3]" />
-                            <span className="text-[10px] text-[#565659] opacity-80">AND</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-base leading-6 text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                        Message <span className="text-[#c3402c]">*</span>
-                      </label>
-                      <Button
-                        ref={smsAddVariableButtonRef}
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-6 text-xs bg-white border border-black/20 rounded-md px-2 gap-1 flex items-center justify-center"
-                        onClick={() => {
-                          // Save current cursor position
-                          const textarea = document.getElementById("sms-message");
-                          if (textarea) {
-                            const selection = window.getSelection();
-                            const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-                            let start = 0;
-                            let end = 0;
-                            if (range && textarea.contains(range.commonAncestorContainer)) {
-                              const preCaretRange = range.cloneRange();
-                              preCaretRange.selectNodeContents(textarea);
-                              preCaretRange.setEnd(range.startContainer, range.startOffset);
-                              start = preCaretRange.toString().length;
-                              preCaretRange.setEnd(range.endContainer, range.endOffset);
-                              end = preCaretRange.toString().length;
-                            } else {
-                              // If no selection, use text length (cursor at end)
-                              start = smsMessage.length;
-                              end = smsMessage.length;
-                            }
-                            setSavedTextCursorPosition({ start, end });
-                          }
-                          setPickerContext("sms");
-                          setShowVariablePicker(true);
-                          setOpenedViaHotkey(false);
-                          setCursorPosition({ top: 0, left: 0 });
-                        }}
-                      >
-                        + Add variable
-                      </Button>
-                    </div>
-                    <div className="relative">
-                      <ChipTextarea
-                        id="sms-message"
-                        value={smsMessage}
-                        availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties, showChangeStates)}
-                        onChange={(text) => {
-                          setSmsMessage(text);
-                          const textarea = document.getElementById("sms-message");
-                          if (textarea) {
-                            const selection = window.getSelection();
-                            const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-                            let cursorPos = 0;
-                            if (range && textarea.contains(range.commonAncestorContainer)) {
-                              const preCaretRange = range.cloneRange();
-                              preCaretRange.selectNodeContents(textarea);
-                              preCaretRange.setEnd(range.endContainer, range.endOffset);
-                              cursorPos = preCaretRange.toString().length;
-                            }
-                            const textBeforeCursor = text.substring(0, cursorPos);
-                            
-                            // Check if user typed "{{"
-                            if (textBeforeCursor.endsWith("{{")) {
-                              // Save cursor position
-                              setSavedTextCursorPosition({ start: cursorPos, end: cursorPos });
-                              
-                              setPickerContext("sms");
-                              setShowVariablePicker(true);
-                              setVariableSearchQuery("");
-                              setOpenedViaHotkey(true);
-                              
-                              // Calculate position using caret-based measurement
-                              const calculatePosition = () => {
-                                const caretPos = getCaretLinePosition(textarea as HTMLElement);
-                                
-                                if (caretPos) {
-                                  // Position popover exactly 8px below the caret's line
-                                  const popoverTop = caretPos.lineBottom + 8;
-                                  const popoverWidth = 400;
-                                  const textareaRect = textarea.getBoundingClientRect();
-                                  const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                  
-                                  setCursorPosition({ top: caretPos.lineBottom, left: caretPos.lineLeft });
-                                  setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                } else {
-                                  // Fallback: use textarea position
-                                  const textareaRect = textarea.getBoundingClientRect();
-                                  const computedStyle = window.getComputedStyle(textarea);
-                                  const lineHeight = parseFloat(computedStyle.lineHeight) || 24;
-                                  const paddingTop = parseFloat(computedStyle.paddingTop) || 8;
-                                  const lineBottom = textareaRect.top + paddingTop + lineHeight;
-                                  const popoverTop = lineBottom + 8;
-                                  const popoverWidth = 400;
-                                  const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                  
-                                  setCursorPosition({ top: lineBottom, left: textareaRect.left + 12 });
-                                  setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                }
-                                
-                                setTimeout(() => {
-                                  justCalculatedPositionRef.current = false;
-                                }, 100);
-                              };
-                              
-                              justCalculatedPositionRef.current = true;
-                              calculatePosition();
-                              requestAnimationFrame(() => {
-                                requestAnimationFrame(calculatePosition);
-                              });
-                            } else if (showVariablePicker && pickerContext === "sms" && textBeforeCursor.includes("{{")) {
-                              // Extract search query after "{{"
-                              const lastOpenBrace = textBeforeCursor.lastIndexOf("{{");
-                              const searchText = textBeforeCursor.substring(lastOpenBrace + 2);
-                              setVariableSearchQuery(searchText);
-                              
-                              // If user typed "{{" again, recalculate position
-                              if (textBeforeCursor.endsWith("{{")) {
-                                setOpenedViaHotkey(true);
-                                const calculatePosition = () => {
-                                  const caretPos = getCaretLinePosition(textarea as HTMLElement);
-                                  
-                                  if (caretPos) {
-                                    // Position popover exactly 8px below the caret's line
-                                    const popoverTop = caretPos.lineBottom + 8;
-                                    const popoverWidth = 400;
-                                    const textareaRect = textarea.getBoundingClientRect();
-                                    const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                    
-                                    setCursorPosition({ top: caretPos.lineBottom, left: caretPos.lineLeft });
-                                    setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                  } else {
-                                    // Fallback: use textarea position
-                                    const textareaRect = textarea.getBoundingClientRect();
-                                    const computedStyle = window.getComputedStyle(textarea);
-                                    const lineHeight = parseFloat(computedStyle.lineHeight) || 24;
-                                    const paddingTop = parseFloat(computedStyle.paddingTop) || 8;
-                                    const lineBottom = textareaRect.top + paddingTop + lineHeight;
-                                    const popoverTop = lineBottom + 8;
-                                    const popoverWidth = 400;
-                                    const popoverLeft = Math.max(8, Math.min(textareaRect.left, window.innerWidth - popoverWidth - 8));
-                                    
-                                    setCursorPosition({ top: lineBottom, left: textareaRect.left + 12 });
-                                    setVariablePopoverPosition({ top: popoverTop, left: popoverLeft });
-                                  }
-                                  
-                                  setTimeout(() => {
-                                    justCalculatedPositionRef.current = false;
-                                  }, 100);
-                                };
-                                
-                                justCalculatedPositionRef.current = true;
-                                calculatePosition();
-                                requestAnimationFrame(() => {
-                                  requestAnimationFrame(calculatePosition);
-                                });
-                              }
-                            }
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (showVariablePicker && pickerContext === "sms") {
-                            const textarea = e.currentTarget;
-                            const selection = window.getSelection();
-                            const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-                            let cursorPos = 0;
-                            if (range && textarea.contains(range.commonAncestorContainer)) {
-                              const preCaretRange = range.cloneRange();
-                              preCaretRange.selectNodeContents(textarea);
-                              preCaretRange.setEnd(range.endContainer, range.endOffset);
-                              cursorPos = preCaretRange.toString().length;
-                            }
-                            const textBeforeCursor = smsMessage.substring(0, cursorPos);
-                            
-                            if (textBeforeCursor.includes("{{")) {
-                              const lastOpenBrace = textBeforeCursor.lastIndexOf("{{");
-                              const searchText = textBeforeCursor.substring(lastOpenBrace + 2);
-                              setVariableSearchQuery(searchText);
-                            }
-                          }
-                        }}
-                        placeholder="Enter your message here..."
-                        className="w-full min-h-[195px]"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-base leading-6 text-black mb-2" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                        Time zone <span className="text-[#c3402c]">*</span>
-                      </label>
-                      <div className="relative">
-                        <Input
-                          defaultValue="UTC (UTC+0)"
-                          className="w-full border-[#bfbebe] pr-10"
-                        />
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 size-6 text-black" />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-base leading-6 text-black mb-2" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
-                        Locale <span className="text-[#c3402c]">*</span>
-                      </label>
-                      <div className="relative">
-                        <Input
-                          defaultValue="United States (English)"
-                          className="w-full border-[#bfbebe] pr-10"
-                        />
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 size-6 text-black" />
-                      </div>
-                    </div>
+                    <Input defaultValue={selectedFlowStep.title} className="w-full border-[#CCCCCC]" />
                   </div>
                 </div>
               </div>
             )}
-          </div>
 
-          {/* Footer - Fixed at bottom */}
-          <div className="border-t border-[#e0dede] bg-white p-4 flex items-center justify-between h-16 shrink-0">
-            <div className="flex items-center gap-3">
-              <Button variant="destructive" className="bg-[#bb3d2a] text-white hover:bg-[#bb3d2a]/90 h-10">
-                Remove
-              </Button>
-              <Button variant="outline" className="border-[#d3d3d3] h-10">
-                Duplicate
-              </Button>
             </div>
-            <div className="flex items-center gap-3">
-              <Button variant="outline" className="border-[#d3d3d3] h-10">
-                Cancel
-              </Button>
-            <Button className="bg-[#7A005D] text-white hover:bg-[#7A005D]/90 h-10">
-              Save
-            </Button>
+
+            {/* Footer - Fixed at bottom of drawer */}
+            <div className="border-t border-[#e0dede] bg-white p-4 flex items-center justify-between h-16 shrink-0">
+              <div className="flex items-center gap-3">
+                {selectedFlowStep?.role !== "trigger" && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      className="bg-[#bb3d2a] text-white hover:bg-[#bb3d2a]/90 h-10"
+                      onClick={handleRemoveSelectedStep}
+                    >
+                      Remove
+                    </Button>
+                    <Button variant="outline" className="border-[#d3d3d3] h-10">
+                      Duplicate
+                    </Button>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <Button variant="outline" className="border-[#d3d3d3] h-10">
+                  Cancel
+                </Button>
+                <Button className="bg-[#7A005D] text-white hover:bg-[#7A005D]/90 h-10">
+                  Save
+                </Button>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Center Panel - Workflow Visualization */}
-        <div className="flex-1 flex items-center justify-center relative">
-          <div className="flex flex-col items-center">
-            {/* Workflow Trigger */}
-            <Card 
-              className={`w-[250px] h-[62px] border flex items-center shadow-none rounded-md cursor-pointer transition-all ${
-                selectedNode === "trigger" 
-                  ? "border-2 border-[#5aa5e7] bg-white opacity-100" 
-                  : "opacity-40 border-[#e0dede]"
-              }`}
-              onClick={() => setSelectedNode("trigger")}
-            >
-              <div className="px-3 flex items-center gap-3 w-full h-full">
-                <TriggerIcon className={`size-6 shrink-0 ${selectedNode === "trigger" ? "text-black" : "text-[#8c8888]"}`} />
-                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "12px", lineHeight: "16px", color: "#6F6F72", flex: "none", alignSelf: "stretch" }}>Workflow trigger</p>
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "16px", lineHeight: "24px", color: "#252528", flex: "none", alignSelf: "stretch" }}>{showChangeStates ? "Profile change is effective" : "rwebb_object is created"}</p>
-                </div>
+        {/* Center Panel - Workflow Visualization (scrollable tree; trigger stays pinned) */}
+        <div className="relative z-0 flex min-h-0 flex-1 flex-col pt-8">
+          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+            <div className="flex flex-col items-center pb-24">
+              <div className="sticky top-0 z-10 mb-0 flex w-full flex-col items-center gap-0 bg-[#f9f7f6] pt-4 pb-0">
+                <Card
+                  className={`h-[62px] w-[250px] gap-0 py-0 cursor-pointer rounded-md border shadow-none transition-all flex flex-row items-center ${
+                    selectedCanvasStepId === WORKFLOW_TRIGGER_ID
+                      ? "border-2 border-[#5aa5e7] bg-white opacity-100"
+                      : selectedCanvasStepId === null
+                        ? "border-[#e0dede] opacity-100"
+                        : "border-[#e0dede] opacity-40"
+                  }`}
+                  onClick={() => setSelectedCanvasStepId(WORKFLOW_TRIGGER_ID)}
+                >
+                  <div className="flex h-full w-full items-center gap-3 px-3">
+                    <TriggerIcon
+                      className={`size-6 shrink-0 ${selectedCanvasStepId === WORKFLOW_TRIGGER_ID || selectedCanvasStepId === null ? "text-black" : "text-[#8c8888]"}`}
+                    />
+                    <div className="flex min-w-0 flex-1 flex-col justify-center">
+                      <p
+                        className="truncate"
+                        style={{
+                          fontFamily: "'Basel Grotesk', sans-serif",
+                          fontWeight: 430,
+                          fontSize: "12px",
+                          lineHeight: "16px",
+                          color: "#6F6F72",
+                          flex: "none",
+                          alignSelf: "stretch",
+                        }}
+                      >
+                        Workflow trigger
+                      </p>
+                      <p
+                        className="truncate"
+                        style={{
+                          fontFamily: "'Basel Grotesk', sans-serif",
+                          fontWeight: 535,
+                          fontSize: "16px",
+                          lineHeight: "24px",
+                          color: "#252528",
+                          flex: "none",
+                          alignSelf: "stretch",
+                        }}
+                      >
+                        Start date at 9:00 AM PST
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+                <WorkflowStepConnector
+                  insertIndex={0}
+                  onInsertStep={handleInsertCatalogStep}
+                  catalogDragActive={catalogDragActive}
+                  onCatalogDragStateEnd={() => setCatalogDragActive(false)}
+                />
               </div>
-            </Card>
 
-            {/* Arrow connecting to AI Prompt */}
-            <div className="relative h-[50px] flex items-end justify-center">
-              <div 
-                className="h-[calc(100%-8px)] w-0 border-l border-[#8c8888] border-dashed"
-                style={{ borderWidth: '1px' }}
-              />
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[8px] border-l-transparent border-r-transparent border-t-[#8c8888]" />
+            {workflowFlowSteps.slice(1).map((step, idx) => (
+              <Fragment key={step.id}>
+                <Card
+                  className={`w-[250px] h-[62px] border flex items-center shadow-none rounded-md cursor-pointer transition-all ${
+                    selectedCanvasStepId === step.id
+                      ? "border-2 border-[#5aa5e7] bg-white opacity-100"
+                      : selectedCanvasStepId === null
+                        ? "border-[#e0dede] opacity-100"
+                        : "opacity-40 border-[#e0dede]"
+                  }`}
+                  onClick={() => setSelectedCanvasStepId(step.id)}
+                >
+                  <div className="px-3 flex items-center gap-3 w-full h-full">
+                    {step.role === "aiPrompt" && (
+                      <>
+                        <AIIcon
+                          className={`size-6 shrink-0 ${selectedCanvasStepId === step.id || selectedCanvasStepId === null ? "" : "opacity-40"}`}
+                        />
+                        <div className="flex-1 min-w-0 flex flex-col justify-center">
+                          <p
+                            className="truncate"
+                            style={{
+                              fontFamily: "'Basel Grotesk', sans-serif",
+                              fontWeight: 430,
+                              fontSize: "12px",
+                              lineHeight: "16px",
+                              color: "#6F6F72",
+                              flex: "none",
+                              alignSelf: "stretch",
+                            }}
+                          >
+                            AI agent
+                          </p>
+                          <p
+                            className="truncate"
+                            style={{
+                              fontFamily: "'Basel Grotesk', sans-serif",
+                              fontWeight: 535,
+                              fontSize: "16px",
+                              lineHeight: "24px",
+                              color: "#252528",
+                              flex: "none",
+                              alignSelf: "stretch",
+                            }}
+                          >
+                            {step.title}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                    {step.role === "widget" && (
+                      <>
+                        <WidgetIcon
+                          className={`size-6 shrink-0 ${selectedCanvasStepId === step.id || selectedCanvasStepId === null ? "text-black" : "text-[#8c8888]"}`}
+                        />
+                        <div className="flex-1 min-w-0 flex flex-col justify-center">
+                          <p
+                            className="truncate"
+                            style={{
+                              fontFamily: "'Basel Grotesk', sans-serif",
+                              fontWeight: 430,
+                              fontSize: "12px",
+                              lineHeight: "16px",
+                              color: "#6F6F72",
+                              flex: "none",
+                              alignSelf: "stretch",
+                            }}
+                          >
+                            Update widget
+                          </p>
+                          <p
+                            className="truncate"
+                            style={{
+                              fontFamily: "'Basel Grotesk', sans-serif",
+                              fontWeight: 535,
+                              fontSize: "16px",
+                              lineHeight: "24px",
+                              color: "#252528",
+                              flex: "none",
+                              alignSelf: "stretch",
+                            }}
+                          >
+                            {step.title}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                    {step.role === "custom" && (() => {
+                      const cat = findCatalogItem(step.catalogItemId);
+                      return (
+                        <>
+                          <div className="flex size-6 shrink-0 items-center justify-center text-[#595555]">
+                            {cat?.icon ?? <ClipboardList className="size-4" />}
+                          </div>
+                          <div className="flex-1 min-w-0 flex flex-col justify-center">
+                            <p
+                              className="truncate"
+                              style={{
+                                fontFamily: "'Basel Grotesk', sans-serif",
+                                fontWeight: 430,
+                                fontSize: "12px",
+                                lineHeight: "16px",
+                                color: "#6F6F72",
+                                flex: "none",
+                                alignSelf: "stretch",
+                              }}
+                            >
+                              {step.categoryLabel}
+                            </p>
+                            <p
+                              className="truncate"
+                              style={{
+                                fontFamily: "'Basel Grotesk', sans-serif",
+                                fontWeight: 535,
+                                fontSize: "16px",
+                                lineHeight: "24px",
+                                color: "#252528",
+                                flex: "none",
+                                alignSelf: "stretch",
+                              }}
+                            >
+                              {step.title}
+                            </p>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </Card>
+
+                <WorkflowStepConnector
+                  insertIndex={idx + 1}
+                  onInsertStep={handleInsertCatalogStep}
+                  catalogDragActive={catalogDragActive}
+                  onCatalogDragStateEnd={() => setCatalogDragActive(false)}
+                />
+              </Fragment>
+            ))}
+
+            <p className="mt-2 text-sm text-[#8c8888]">End workflow</p>
             </div>
-
-            {/* AI Prompt Step */}
-            <Card 
-              className={`w-[250px] h-[62px] border flex items-center shadow-none rounded-md cursor-pointer transition-all ${
-                selectedNode === "aiPrompt" 
-                  ? "border-2 border-[#5aa5e7] bg-white opacity-100" 
-                  : "opacity-40 border-[#e0dede]"
-              }`}
-              onClick={() => setSelectedNode("aiPrompt")}
-            >
-              <div className="px-3 flex items-center gap-3 w-full h-full">
-                <AIIcon className={`size-6 shrink-0 ${selectedNode === "aiPrompt" ? "" : "opacity-40"}`} />
-                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "12px", lineHeight: "16px", color: "#6F6F72", flex: "none", alignSelf: "stretch" }}>AI step</p>
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "16px", lineHeight: "24px", color: "#252528", flex: "none", alignSelf: "stretch" }}>AI prompt</p>
-                </div>
-              </div>
-            </Card>
-
-            {/* Arrow connecting to SMS */}
-            <div className="relative h-[50px] flex items-end justify-center">
-              <div 
-                className="h-[calc(100%-8px)] w-0 border-l border-[#8c8888] border-dashed"
-                style={{ borderWidth: '1px' }}
-              />
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[8px] border-l-transparent border-r-transparent border-t-[#8c8888]" />
-        </div>
-
-            {/* SMS Step */}
-            <Card 
-              className={`w-[250px] h-[62px] border flex items-center shadow-none rounded-md cursor-pointer transition-all ${
-                selectedNode === "sms" 
-                  ? "border-2 border-[#5aa5e7] bg-white opacity-100" 
-                  : "opacity-40 border-[#e0dede]"
-              }`}
-              onClick={() => setSelectedNode("sms")}
-            >
-              <div className="px-3 flex items-center gap-3 w-full h-full">
-                <SMSIcon className={`size-6 shrink-0 ${selectedNode === "sms" ? "text-black" : "text-[#8c8888]"}`} />
-                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, fontSize: "12px", lineHeight: "16px", color: "#6F6F72", flex: "none", alignSelf: "stretch" }}>Send an SMS</p>
-                  <p className="truncate" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, fontSize: "16px", lineHeight: "24px", color: "#252528", flex: "none", alignSelf: "stretch" }}>SMS 1</p>
-                </div>
-              </div>
-            </Card>
-
-            {/* Arrow connecting to End */}
-            <div className="relative h-[50px] flex items-end justify-center">
-              <div 
-                className="h-[calc(100%-8px)] w-0 border-l border-[#8c8888] border-dashed"
-                style={{ borderWidth: '1px' }}
-              />
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[8px] border-l-transparent border-r-transparent border-t-[#8c8888]" />
-            </div>
-
-            <p className="text-sm text-[#8c8888] mt-2">End workflow</p>
           </div>
 
-          {/* Zoom Controls */}
-          <div className="absolute top-4 right-4 flex items-center gap-2">
+          {/* Zoom Controls — above sticky trigger (z-10) and connector drop layer (z-20) */}
+          <div className="absolute top-4 right-4 z-30 flex items-center gap-2 pointer-events-auto">
             <div className="flex items-center border border-[#e0dede] bg-white rounded">
               <Button variant="ghost" size="icon" className="h-8 w-8 rounded-none border-r border-[#e0dede]">
                 <ZoomOut className="size-4" />
@@ -2727,11 +2362,9 @@ export default function Home() {
         </div>
       </div>
       )}
-        </>
-      )}
 
-      {/* Variable Dropdown for SMS and Prompt - Popover version */}
-      {showVariablePicker && (pickerContext === "sms" || pickerContext === "aiPrompt") && (
+      {/* Variable Dropdown for Widget and Prompt - Popover version */}
+      {showVariablePicker && (pickerContext === "widget" || pickerContext === "aiPrompt") && (
         <div 
           className="variable-popover fixed z-50 bg-white border-l border-r border-b border-t-0 border-[#e0dede] rounded-lg shadow-lg w-[400px] max-h-[400px] flex flex-col"
           style={{
@@ -2741,48 +2374,32 @@ export default function Home() {
           onMouseDown={(e) => {
             // Stop propagation to prevent textarea from receiving mousedown events
             e.stopPropagation();
-            if (e.nativeEvent && typeof e.nativeEvent.stopImmediatePropagation === 'function') {
-              e.nativeEvent.stopImmediatePropagation();
-            }
           }}
           onClick={(e) => {
             // Stop propagation to prevent textarea from receiving click events
             e.stopPropagation();
-            if (e.nativeEvent && typeof e.nativeEvent.stopImmediatePropagation === 'function') {
-              e.nativeEvent.stopImmediatePropagation();
-            }
-          }}
-          onMouseDownCapture={(e) => {
-            // Prevent clicks inside the popover from closing it
-            e.stopPropagation();
-            if (e.nativeEvent && typeof e.nativeEvent.stopImmediatePropagation === 'function') {
-              e.nativeEvent.stopImmediatePropagation();
-            }
           }}
         >
           <VariableDropdown
-            availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties, showChangeStates)}
+            availableSteps={getAvailableSteps(selectedNode, outputFormat, jsonProperties)}
             selectedVariables={[]}
             initialSearchQuery={variableSearchQuery}
             hideSearchInput={openedViaHotkey}
             openedViaHotkey={openedViaHotkey}
-            breadcrumbMode={workflowOption === "opt1"}
-            showChangeStates={showChangeStates}
             onSelect={(variables) => {
               if (variables.length > 0) {
-                const currentText = pickerContext === "sms" ? smsMessage : promptMessage;
+                const currentText = pickerContext === "widget" ? widgetConfig : promptMessage;
                 
-                // Format variable as {{object.category.field}} or {{before:object.category.field}} or {{after:object.category.field}}
+                // Format variable as {{object.category.field}}
                 const variable = variables[variables.length - 1];
-                const changeStatePrefix = variable.changeState ? `${variable.changeState}:` : '';
-                const variableText = `{{${changeStatePrefix}${variable.object}.${variable.category}.${variable.field}}}`;
+                const variableText = `{{${variable.object}.${variable.category}.${variable.field}}}`;
                 
                 let finalText: string;
                 let insertionPosition: number;
                 
                 if (openedViaHotkey) {
                   // When opened via hotkey, find the "{{" that opened the picker
-                  const textareaId = pickerContext === "sms" ? 'sms-message' : 'prompt-textarea';
+                  const textareaId = pickerContext === "widget" ? 'widget-config' : 'prompt-textarea';
                   const textarea = document.getElementById(textareaId);
                   let currentCursorPos = currentText.length; // Default to end
                   
@@ -2824,8 +2441,8 @@ export default function Home() {
                   insertionPosition = start + variableText.length;
                 }
                   
-                  if (pickerContext === "sms") {
-                    setSmsMessage(finalText);
+                  if (pickerContext === "widget") {
+                    setWidgetConfig(finalText);
                   } else {
                     setPromptMessage(finalText);
                   }
@@ -2840,7 +2457,7 @@ export default function Home() {
                   
                   // Set cursor position after inserted variable
                   setTimeout(() => {
-                    const textareaId = pickerContext === "sms" ? 'sms-message' : 'prompt-textarea';
+                    const textareaId = pickerContext === "widget" ? 'widget-config' : 'prompt-textarea';
                     const textarea = document.getElementById(textareaId);
                     if (textarea) {
                       textarea.focus();
@@ -2914,6 +2531,284 @@ export default function Home() {
             inModal={false}
           />
         </div>
+      )}
+
+      {/* Query Rippling Data Modal */}
+      {showQueryModal && (
+        <>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => {
+              setShowQueryModal(false);
+              setObjectDropdownOpen(false);
+              setObjectSearchQuery("");
+            }}
+          />
+          {/* Modal */}
+          <div className="relative bg-white rounded-xl shadow-2xl w-[520px] max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 pt-6 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#f3f0ee]">
+                  <Database className="size-4 text-[#595555]" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
+                    Query Rippling Data
+                  </h2>
+                  <p className="text-xs text-[#8c8888]" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>
+                    Configure which data the agent can access
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="text-[#8c8888] hover:text-black transition-colors"
+                onClick={() => {
+                  setShowQueryModal(false);
+                  setObjectDropdownOpen(false);
+                  setObjectSearchQuery("");
+                }}
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="bg-[#e0dede] h-px" />
+
+            {/* Body */}
+            <div className="px-6 py-5 flex flex-col gap-5 overflow-y-auto">
+              <div>
+                <label className="block text-sm font-medium text-black mb-3" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
+                  Data scope
+                </label>
+                <div className="flex flex-col gap-2">
+                  <label
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      queryScope === "all"
+                        ? "border-[#7A005D] bg-[#7A005D]/5"
+                        : "border-[#e0dede] hover:border-[#ccc]"
+                    }`}
+                    onClick={() => {
+                      setQueryScope("all");
+                      setObjectDropdownOpen(false);
+                    }}
+                  >
+                    <div
+                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                        queryScope === "all"
+                          ? "border-[#7A005D]"
+                          : "border-[#ccc]"
+                      }`}
+                    >
+                      {queryScope === "all" && (
+                        <div className="w-2 h-2 rounded-full bg-[#7A005D]" />
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-sm font-medium text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
+                        All Rippling data
+                      </span>
+                      <p className="text-xs text-[#8c8888] mt-0.5" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>
+                        The agent can query any category in Rippling
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      queryScope === "specific"
+                        ? "border-[#7A005D] bg-[#7A005D]/5"
+                        : "border-[#e0dede] hover:border-[#ccc]"
+                    }`}
+                    onClick={() => setQueryScope("specific")}
+                  >
+                    <div
+                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                        queryScope === "specific"
+                          ? "border-[#7A005D]"
+                          : "border-[#ccc]"
+                      }`}
+                    >
+                      {queryScope === "specific" && (
+                        <div className="w-2 h-2 rounded-full bg-[#7A005D]" />
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-sm font-medium text-black" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
+                        Specific categories only
+                      </span>
+                      <p className="text-xs text-[#8c8888] mt-0.5" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>
+                        Restrict access to selected Rippling categories
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Specific categories multiselect */}
+              {queryScope === "specific" && (
+                <div>
+                  <label className="block text-sm font-medium text-black mb-2" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}>
+                    Select categories
+                  </label>
+
+                  {/* Dropdown trigger */}
+                  <div ref={objectDropdownRef}>
+                    <div
+                      ref={objectTriggerRef}
+                      className={`flex flex-wrap items-center gap-1.5 border rounded-md bg-white cursor-pointer transition-colors min-h-[40px] px-2 py-1.5 ${
+                        objectDropdownOpen ? "border-[#7A005D] ring-2 ring-[#7A005D]/20" : "border-[#CCCCCC]"
+                      }`}
+                      onClick={() => setObjectDropdownOpen(!objectDropdownOpen)}
+                    >
+                      {/* Selected chips inside input */}
+                      {selectedObjects.map((obj) => (
+                        <span
+                          key={obj}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-[#f3f0ee] text-black border border-[#e0dede]"
+                          style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
+                        >
+                          {obj}
+                          <button
+                            type="button"
+                            className="text-[#8c8888] hover:text-black transition-colors ml-0.5"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedObjects(selectedObjects.filter((o) => o !== obj));
+                            }}
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </span>
+                      ))}
+                      <div className="flex-1 min-w-[100px]">
+                        {objectDropdownOpen ? (
+                          <input
+                            type="text"
+                            className="w-full text-sm outline-none bg-transparent"
+                            style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}
+                            placeholder={selectedObjects.length === 0 ? "Search categories..." : "Search..."}
+                            value={objectSearchQuery}
+                            onChange={(e) => setObjectSearchQuery(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            autoFocus
+                          />
+                        ) : (
+                          selectedObjects.length === 0 && (
+                            <span className="text-sm text-[#8c8888] px-1" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>
+                              Select categories...
+                            </span>
+                          )
+                        )}
+                      </div>
+                      <div className="shrink-0 px-1">
+                        <ChevronDown
+                          className={`size-4 text-[#8c8888] transition-transform ${
+                            objectDropdownOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-[#e0dede] h-px" />
+            <div className="flex items-center justify-end gap-3 px-6 py-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-[#d3d3d3] h-9 px-4"
+                onClick={() => {
+                  setShowQueryModal(false);
+                  setObjectDropdownOpen(false);
+                  setObjectSearchQuery("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="bg-[#7A005D] text-white hover:bg-[#7A005D]/90 h-9 px-4"
+                onClick={() => {
+                  setQueryToolAdded(true);
+                  setShowQueryModal(false);
+                  setObjectDropdownOpen(false);
+                  setObjectSearchQuery("");
+                }}
+              >
+                {queryToolAdded ? "Save" : "Add tool"}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Fixed dropdown list rendered outside modal to avoid clipping */}
+        {objectDropdownOpen && queryScope === "specific" && (
+          <div
+            className="object-dropdown-list fixed z-[200] bg-white border border-[#e0dede] rounded-md shadow-lg max-h-[200px] overflow-y-auto"
+            style={{
+              top: `${objectDropdownPosition.top}px`,
+              left: `${objectDropdownPosition.left}px`,
+              width: `${objectDropdownPosition.width}px`,
+            }}
+          >
+            {RIPPLING_CATEGORIES.filter(
+              (obj) =>
+                obj.toLowerCase().includes(objectSearchQuery.toLowerCase())
+            ).map((obj) => {
+              const isSelected = selectedObjects.includes(obj);
+              return (
+                <button
+                  key={obj}
+                  type="button"
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
+                    isSelected
+                      ? "bg-[#7A005D]/5 text-black"
+                      : "hover:bg-[#f5f5f5] text-black"
+                  }`}
+                  style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isSelected) {
+                      setSelectedObjects(selectedObjects.filter((o) => o !== obj));
+                    } else {
+                      setSelectedObjects([...selectedObjects, obj]);
+                    }
+                  }}
+                >
+                  <div
+                    className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                      isSelected
+                        ? "bg-[#7A005D] border-[#7A005D]"
+                        : "border-[#ccc]"
+                    }`}
+                  >
+                    {isSelected && (
+                      <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                        <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </div>
+                  {obj}
+                </button>
+              );
+            })}
+            {RIPPLING_CATEGORIES.filter((obj) =>
+              obj.toLowerCase().includes(objectSearchQuery.toLowerCase())
+            ).length === 0 && (
+              <div className="px-3 py-4 text-sm text-[#8c8888] text-center" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>
+                No categories match &ldquo;{objectSearchQuery}&rdquo;
+              </div>
+            )}
+          </div>
+        )}
+        </>
       )}
     </div>
   );

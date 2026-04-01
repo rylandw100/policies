@@ -840,8 +840,7 @@ export default function DocumentsPage() {
                 fontFamily: "'Times New Roman', serif", 
                 fontSize: "13.5px", 
                 lineHeight: "1.6",
-                color: "#000",
-                textAlign: "left"
+                color: "#000"
               }}
               onKeyDown={(e) => {
                 // When popover is open via hotkey, prevent arrow keys and tab from being handled by contentEditable

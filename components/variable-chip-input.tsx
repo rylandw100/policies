@@ -27,23 +27,7 @@ export function VariableChipInput({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const formatVariablePath = (path: VariablePath): string => {
-    // Format field name: capitalize first letter and convert camelCase to Title Case
-    const formatFieldName = (field: string): string => {
-      // Convert camelCase to Title Case (e.g., "currency" -> "Currency", "lastName" -> "Last Name")
-      const formatted = field
-        .replace(/([A-Z])/g, ' $1') // Add space before capital letters
-        .replace(/^./, (str) => str.toUpperCase()) // Capitalize first letter
-        .trim();
-      return formatted;
-    };
-    
-    const fieldName = formatFieldName(path.field);
-    
-    if (path.changeState) {
-      const changeStateLabel = path.changeState === "before" ? "Before the change" : "After the change";
-      return `${fieldName} (${changeStateLabel})`;
-    }
-    return fieldName;
+    return `${path.object} > ${path.category} > ${path.field}`;
   };
 
   const getFieldTypeIcon = (fieldType?: string) => {
@@ -71,7 +55,7 @@ export function VariableChipInput({
       <div
         ref={containerRef}
         className={cn(
-          "min-h-[40px] w-full border rounded-lg bg-white p-2 flex flex-wrap gap-2 items-center justify-start cursor-text transition-colors",
+          "min-h-[40px] w-full border rounded-lg bg-white p-2 flex flex-wrap gap-2 items-center cursor-text transition-colors",
           isFocused
             ? "border-[#1e4aa9] border-2 ring-2 ring-[#1e4aa9]/20"
             : "border-black/20",

@@ -74,6 +74,24 @@ export function SMSIcon({ className }: IconProps) {
   );
 }
 
+export function WidgetIcon({ className }: IconProps) {
+  return (
+    <svg 
+      width="24" 
+      height="24" 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+    >
+      <path 
+        d="M3 3H10V10H3V3ZM14 3H21V10H14V3ZM3 14H10V21H3V14ZM14 14H21V21H14V14ZM4.5 4.5V8.5H8.5V4.5H4.5ZM15.5 4.5V8.5H19.5V4.5H15.5ZM4.5 15.5V19.5H8.5V15.5H4.5ZM15.5 15.5V19.5H19.5V15.5H15.5Z" 
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 export function CloseIcon({ className, onClick }: IconProps) {
   return (
     <svg 
