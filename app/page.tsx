@@ -51,6 +51,7 @@ import {
 } from "@/components/add-step-catalog";
 import {
   parseAiWorkflowFromPrompt,
+  refineRunFunctionFromPrompt,
   isAiRunFunctionBasicTier,
 } from "@/lib/ai-workflow-from-prompt";
 import {
@@ -105,6 +106,8 @@ type WorkflowFlowStep =
       functionTitle: string;
       summary: string;
       functionTier: "basic" | "advanced";
+      /** AI chat prototype: generated source for the function drawer. */
+      generatedCode: string;
     }
   | {
       id: string;
@@ -280,6 +283,11 @@ export default function Home() {
         ? crypto.randomUUID()
         : `m-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
+    const existingRunStep = workflowFlowSteps.find(
+      (s): s is Extract<WorkflowFlowStep, { role: "runFunction" }> =>
+        s.role === "runFunction"
+    );
+
     setWorkflowChatMessages((prev) => [
       ...prev,
       { id: `u-${mid}`, role: "user", content: raw },
@@ -288,6 +296,55 @@ export default function Home() {
     setWorkflowChatBusy(true);
 
     window.setTimeout(() => {
+      const aid =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `a-${Date.now()}`;
+
+      if (existingRunStep) {
+        const refined = refineRunFunctionFromPrompt(raw, {
+          triggerLabel: workflowTriggerLabel,
+        });
+
+        setWorkflowFlowSteps((prev) =>
+          prev.map((s) =>
+            s.id === existingRunStep.id && s.role === "runFunction"
+              ? {
+                  ...s,
+                  runLabel: refined.runLabel,
+                  functionTitle: refined.functionTitle,
+                  summary: refined.summary,
+                  functionTier: refined.functionTier,
+                  generatedCode: refined.generatedCode,
+                }
+              : s
+          )
+        );
+
+        const detailLines = [
+          `Trigger unchanged: ${workflowTriggerLabel}`,
+          `What it does: ${refined.summary}`,
+          `Function tier: ${
+            refined.functionTier === "basic"
+              ? "Basic (single email or task action)"
+              : "Advanced (more than email/task-only)"
+          }`,
+        ];
+        if (refined.assumptions.length) {
+          detailLines.push(`Note: ${refined.assumptions.join(" ")}`);
+        }
+        const assistantContent = `Updated the Run function (trigger left as-is).\n\n${detailLines.join(
+          "\n"
+        )}`;
+
+        setWorkflowChatMessages((prev) => [
+          ...prev,
+          { id: `a-${aid}`, role: "assistant", content: assistantContent },
+        ]);
+        setWorkflowChatBusy(false);
+        return;
+      }
+
       const parsed = parseAiWorkflowFromPrompt(raw);
       const stepId =
         typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -301,6 +358,7 @@ export default function Home() {
         functionTitle: parsed.functionTitle,
         summary: parsed.summary,
         functionTier: parsed.functionTier,
+        generatedCode: parsed.generatedCode,
       };
 
       setWorkflowTriggerLabel(parsed.triggerLabel);
@@ -329,10 +387,6 @@ export default function Home() {
         "\n"
       )}`;
 
-      const aid =
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `a-${Date.now()}`;
       setWorkflowChatMessages((prev) => [
         ...prev,
         { id: `a-${aid}`, role: "assistant", content: assistantContent },
@@ -2430,7 +2484,7 @@ For each category, determine if the employee is compliant or non-compliant based
 
                   {catalogStepTierLabelsActive ? (
                     isAiRunFunctionBasicTier(selectedFlowStep) ? (
-                      <div className="mb-2 mt-6 flex items-start gap-1.5 rounded-md bg-[#f0fdf4] px-2.5 py-2 text-[13px] leading-[1.35] text-[#166534]">
+                      <div className="mb-0 mt-6 flex items-start gap-1.5 rounded-md bg-[#f0fdf4] px-2.5 py-2 text-[13px] leading-[1.35] text-[#166534]">
                         <span className="font-semibold" aria-hidden>
                           ↑
                         </span>
@@ -2443,17 +2497,21 @@ For each category, determine if the employee is compliant or non-compliant based
                         </span>
                       </div>
                     ) : (
-                      <div className="mb-2 mt-6 flex items-start gap-1.5 rounded-md border border-[#e8d5e0] bg-[#fafafa] px-2.5 py-2 text-[13px] leading-[1.35] text-[#595555]">
+                      <div className="mb-0 mt-6 flex items-start gap-1.5 rounded-md border border-[#e8d5e0] bg-[#fafafa] px-2.5 py-2 text-[13px] leading-[1.35] text-[#595555]">
                         <span style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>
-                          Advanced-tier: logic beyond a single email or task. Same helper applies for
-                          runtime checks.
+                          Advanced-tier: this function is no longer email-or-task–only (e.g. other
+                          channels, queries, or branching). Use{" "}
+                          <code className="rounded bg-white px-1 font-mono text-[12px] text-[#3f3f46]">
+                            isAiRunFunctionBasicTier(step)
+                          </code>{" "}
+                          in code to branch at runtime.
                         </span>
                       </div>
                     )
                   ) : null}
 
                   <div
-                    className="overflow-hidden rounded-lg border border-[#e0dede] bg-[#252528]"
+                    className="mt-6 overflow-hidden rounded-lg border border-[#e0dede] bg-[#252528]"
                     role="region"
                     id="fn-drawer-code-panel"
                     aria-label="Generated code"
@@ -2484,19 +2542,15 @@ For each category, determine if the employee is compliant or non-compliant based
                           className="shrink-0 select-none border-r border-[#3f3f46] bg-[#27272a] py-3 pr-3 pl-2 text-right text-[#71717a]"
                           aria-hidden
                         >
-                          {[
-                            "import RipplingSDK from \"@rippling/rippling-sdk\";",
-                            "",
-                            "export async function onRipplingEvent(event, context) {",
-                            "  const sdk = new RipplingSDK({ bearerToken: context.token });",
-                            "  // …",
-                            "}",
-                          ].map((_, i) => (
-                            <div key={i}>{i + 1}</div>
-                          ))}
+                          {(selectedFlowStep.generatedCode ?? "")
+                            .split("\n")
+                            .map((_, i) => (
+                              <div key={i}>{i + 1}</div>
+                            ))}
                         </div>
                         <pre className="m-0 flex-1 overflow-x-auto whitespace-pre p-3 tab-size-2">
-{`import RipplingSDK from "@rippling/rippling-sdk";
+                          {selectedFlowStep.generatedCode ??
+                            `import RipplingSDK from "@rippling/rippling-sdk";
 
 export async function onRipplingEvent(event, context) {
   const sdk = new RipplingSDK({ bearerToken: context.token });

@@ -20,6 +20,17 @@ export type ParsedAiWorkflow = {
   summary: string;
   functionTier: AiFunctionTier;
   assumptions: string[];
+  /** Prototype generated Rippling Function source shown in the drawer. */
+  generatedCode: string;
+};
+
+export type RefinedRunFunction = {
+  runLabel: string;
+  functionTitle: string;
+  summary: string;
+  functionTier: AiFunctionTier;
+  assumptions: string[];
+  generatedCode: string;
 };
 
 const DEFAULT_TRIGGER = "On a schedule or event you configure";
@@ -156,6 +167,15 @@ function detectIntents(lower: string): IntentFlags {
  */
 export function inferFunctionTierFromPrompt(text: string): AiFunctionTier {
   const lower = text.toLowerCase();
+
+  if (
+    /\b(more\s+advanced|make\s+it\s+advanced|make\s+this\s+more\s+advanced|beyond\s+(a\s+)?single\s+(email|task)|not\s+just\s+(email|task)|add\s+(slack|sms|teams|logic|branching))\b/i.test(
+      lower
+    )
+  ) {
+    return "advanced";
+  }
+
   const f = detectIntents(lower);
 
   const other =
@@ -178,6 +198,104 @@ export function inferFunctionTierFromPrompt(text: string): AiFunctionTier {
   }
 
   return "advanced";
+}
+
+/**
+ * Prototype-only generated source: Basic = email-or-task only; Advanced = multi-channel / logic.
+ */
+export function buildGeneratedRipplingFunctionCode(
+  text: string,
+  functionTier: AiFunctionTier
+): string {
+  const lower = text.toLowerCase();
+  const f = detectIntents(lower);
+
+  const header = `import RipplingSDK from "@rippling/rippling-sdk";
+
+export async function onRipplingEvent(event, context) {
+  const sdk = new RipplingSDK({ bearerToken: context.token });`;
+
+  if (functionTier === "basic") {
+    if (f.email && !f.task) {
+      return `${header}
+
+  await sdk.notifications.sendEmail({
+    to: event.payload?.recipientEmail,
+    subject: "Workflow notification",
+    body: "Automated message from your workflow.",
+  });
+}`;
+    }
+    if (f.task && !f.email) {
+      return `${header}
+
+  await sdk.tasks.create({
+    title: "Workflow task",
+    assigneeId: event.subjectEmployeeId,
+    dueInDays: 3,
+  });
+}`;
+    }
+    return `${header}
+
+  // Basic tier: single email or single task — implement one path only.
+  await sdk.notifications.sendEmail({
+    to: event.payload?.recipientEmail,
+    subject: "Workflow notification",
+    body: "Automated message from your workflow.",
+  });
+}`;
+  }
+
+  const lines: string[] = [header, ""];
+
+  if (f.slack || f.teams) {
+    lines.push(
+      "  const profile = await sdk.employees.getProfile(event.subjectEmployeeId);",
+      `  await sdk.integrations.${f.teams ? "teams" : "slack"}.postMessage({`,
+      `    ${f.teams ? "chatId" : "channel"}: ${f.teams ? '"team-chat-id"' : '"#hr-ops"'},`,
+      `    text: \`Update for \${profile?.fullName ?? "employee"} (advanced automation).\`,`,
+      "  });"
+    );
+  }
+  if (f.sms) {
+    lines.push(
+      '  await sdk.notifications.sendSms({',
+      '    to: event.payload?.phoneE164,',
+      '    body: "Time-sensitive workflow alert.",',
+      "  });"
+    );
+  }
+  if (f.query) {
+    lines.push(
+      "  const rows = await sdk.reporting.runSavedQuery({ reportKey: event.payload?.reportKey });",
+      "  // Use rows to branch or notify different channels below.",
+    );
+  }
+  if (f.conditional) {
+    lines.push(
+      "  if (event.payload?.escalate) {",
+      "    await sdk.notifications.sendEmail({ to: event.payload.escalationEmail, subject: \"Escalation\", body: \"…\" });",
+      "  } else {",
+      "    await sdk.notifications.sendEmail({ to: event.payload?.recipientEmail, subject: \"Standard\", body: \"…\" });",
+      "  }",
+    );
+  }
+  if (lines.length === 2) {
+    lines.push(
+      "  // Advanced: multiple actions beyond a single email or task.",
+      "  const profile = await sdk.employees.getProfile(event.subjectEmployeeId);",
+      "  await sdk.notifications.sendEmail({",
+      "    to: profile.workEmail,",
+      "    subject: \"Workflow update\",",
+      "    body: `Advanced automation for ${profile.fullName}.`,",
+      "  });",
+      "  await sdk.audit.log({ message: \"Advanced function executed\", eventId: event.id });",
+    );
+  }
+
+  lines.push("}");
+  return lines.join("\n");
 }
 
 function inferFunctionTitle(flags: IntentFlags, lower: string): string {
@@ -237,6 +355,7 @@ export function parseAiWorkflowFromPrompt(text: string): ParsedAiWorkflow {
   const functionTier = inferFunctionTierFromPrompt(trimmed);
   const functionTitle = inferFunctionTitle(flags, lower);
   const summary = buildSummary(flags, functionTier, triggerLabel);
+  const generatedCode = buildGeneratedRipplingFunctionCode(trimmed, functionTier);
 
   if (functionTier === "advanced") {
     assumptions.push(
@@ -253,6 +372,41 @@ export function parseAiWorkflowFromPrompt(text: string): ParsedAiWorkflow {
     summary,
     functionTier,
     assumptions,
+    generatedCode,
+  };
+}
+
+/**
+ * Re-parse only the Run function from a follow-up chat message. Keeps trigger fields in the caller;
+ * use the current trigger label when building summaries.
+ */
+export function refineRunFunctionFromPrompt(
+  text: string,
+  ctx: { triggerLabel: string }
+): RefinedRunFunction {
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
+  const assumptions: string[] = [];
+
+  const flags = detectIntents(lower);
+  const functionTier = inferFunctionTierFromPrompt(trimmed);
+  const functionTitle = inferFunctionTitle(flags, lower);
+  const summary = buildSummary(flags, functionTier, ctx.triggerLabel);
+  const generatedCode = buildGeneratedRipplingFunctionCode(trimmed, functionTier);
+
+  if (functionTier === "advanced") {
+    assumptions.push(
+      "This function is Advanced-tier: it goes beyond a single email or task action."
+    );
+  }
+
+  return {
+    runLabel: "Run function",
+    functionTitle,
+    summary,
+    functionTier,
+    assumptions,
+    generatedCode,
   };
 }
 
