@@ -38,7 +38,7 @@ export function ExperienceToggle({
 }
 
 /**
- * Shared global nav — light gray surface aligned with policy workspace (`#f9f7f6`).
+ * Shared global nav — white bar with bottom border.
  */
 export function PrototypeGlobalNav({
   experience,
@@ -51,7 +51,7 @@ export function PrototypeGlobalNav({
   leadingActions?: ReactNode;
 }) {
   return (
-    <header className="flex h-11 shrink-0 items-center justify-end gap-2 border-b border-[#e0dede] bg-[#f9f7f6] px-2.5 text-[#252528] sm:gap-3 sm:px-3">
+    <header className="flex h-11 shrink-0 items-center justify-end gap-2 border-b border-[#e0dede] bg-white px-2.5 text-[#252528] sm:gap-3 sm:px-3">
       <div className="flex min-w-0 shrink-0 items-center justify-end gap-0.5">
         {leadingActions}
         <ExperienceToggle value={experience} onChange={onExperienceChange} />
