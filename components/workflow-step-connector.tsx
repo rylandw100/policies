@@ -20,6 +20,16 @@ type WorkflowStepConnectorProps = {
   catalogDragActive?: boolean;
   /** Called after a successful catalog drop or when drag ends (parent clears drag UI state). */
   onCatalogDragStateEnd?: () => void;
+  /**
+   * `default` caps width at 250px (main spine). `fillColumn` spans the full branch column width
+   * (e.g. 280px) so the drop target matches the step cards.
+   */
+  layout?: "default" | "fillColumn";
+  /**
+   * With `layout="fillColumn"`, grow the drop zone vertically (min 72px) so uneven true/false
+   * columns can align when one side has no steps yet.
+   */
+  fillColumnStretch?: boolean;
 };
 
 /**
@@ -36,12 +46,56 @@ function acceptsCatalogDrag(
   return false;
 }
 
+/** Centered vertical dashed rail — same stroke as {@link WorkflowStepConnector}. */
+const CONNECTOR_RAIL_LINE_CLASS =
+  "pointer-events-none absolute left-1/2 top-0 w-0 -translate-x-1/2 border-l border-dashed border-[#8c8888]";
+
+/**
+ * SVG stroke tuned to match the hairline `border-l border-dashed border-[#8c8888]` used on connectors
+ * (1px weight, short dashes similar to browser default `border-style: dashed`).
+ */
+export const WORKFLOW_CANVAS_SVG_DASHED_EDGE = {
+  strokeWidth: 1,
+  strokeDasharray: "3 3",
+} as const;
+
+/**
+ * Short dashed vertical segment aligned like the main “Add step” connector rail
+ * (line through horizontal center). `fillColumn` matches branch column width.
+ */
+export function WorkflowVerticalRailSegment({
+  className,
+  heightClass = "h-4",
+  layout = "default",
+}: {
+  className?: string;
+  /** Height of the segment (default 16px). */
+  heightClass?: string;
+  layout?: "default" | "fillColumn";
+}) {
+  return (
+    <div
+      className={cn(
+        "relative w-full shrink-0",
+        layout === "fillColumn" ? "max-w-none self-stretch" : "max-w-[250px] self-center",
+        heightClass,
+        className
+      )}
+      aria-hidden
+    >
+      <div className={cn(CONNECTOR_RAIL_LINE_CLASS, "bottom-0")} />
+    </div>
+  );
+}
+
 export function WorkflowStepConnector({
   className,
   insertIndex,
   onInsertStep,
   catalogDragActive = false,
   onCatalogDragStateEnd,
+  layout = "default",
+  fillColumnStretch = false,
 }: WorkflowStepConnectorProps) {
   const [open, setOpen] = useState(false);
   const [dropOver, setDropOver] = useState(false);
@@ -104,7 +158,11 @@ export function WorkflowStepConnector({
     <div
       ref={rootRef}
       className={cn(
-        "relative h-[72px] w-full max-w-[250px]",
+        fillColumnStretch && layout === "fillColumn"
+          ? "relative min-h-[72px] flex-1 grow basis-0 w-full max-h-none overflow-hidden max-w-none"
+          : "relative h-[72px] min-h-[72px] max-h-[72px] w-full shrink-0 grow-0 basis-auto flex-none overflow-hidden",
+        !fillColumnStretch && layout === "fillColumn" && "max-w-none",
+        !fillColumnStretch && layout === "default" && "max-w-[250px]",
         dropOver && "z-20",
         className
       )}
@@ -137,17 +195,19 @@ export function WorkflowStepConnector({
       }}
     >
       {/* Taller dashed connector through horizontal center; arrow at bottom */}
-      <div
-        className="pointer-events-none absolute bottom-[8px] left-1/2 top-0 w-0 -translate-x-1/2 border-l border-dashed border-[#8c8888]"
-        aria-hidden
-      />
+      <div className={cn(CONNECTOR_RAIL_LINE_CLASS, "bottom-[8px]")} aria-hidden />
       <div
         className="pointer-events-none absolute bottom-0 left-1/2 h-0 w-0 -translate-x-1/2 border-l-[4px] border-r-[4px] border-t-[8px] border-l-transparent border-r-transparent border-t-[#8c8888]"
         aria-hidden
       />
 
       {/* 18×18 control, dead center of the connector box */}
-      <div className="absolute left-1/2 top-1/2 z-10 flex w-full max-w-[250px] -translate-x-1/2 -translate-y-1/2 items-center justify-center px-0">
+      <div
+        className={cn(
+          "absolute left-1/2 top-1/2 z-10 flex w-full -translate-x-1/2 -translate-y-1/2 items-center justify-center px-0",
+          layout === "fillColumn" ? "max-w-none" : "max-w-[250px]"
+        )}
+      >
         <button
           ref={anchorRef}
           type="button"

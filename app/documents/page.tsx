@@ -492,7 +492,7 @@ export default function DocumentsPage() {
                 <div className="absolute top-full left-0 mt-1 bg-white rounded-md shadow-lg border border-[#e0dede] min-w-[160px] z-50">
                   <button
                     onClick={() => {
-                      router.push("/");
+                      router.push("/workflow");
                       setIsNavigationDropdownOpen(false);
                     }}
                     className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 first:rounded-t-md last:rounded-b-md ${

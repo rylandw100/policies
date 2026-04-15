@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   ADD_STEP_CATALOG_GROUPS,
   isCatalogItemBasicTier,
+  SHOW_WORKFLOW_TIER_CHIPS,
   WORKFLOW_TIER_CHIP_CLASS_ADVANCED,
   WORKFLOW_TIER_CHIP_CLASS_BASIC,
   WORKFLOW_TIER_CHIP_FONT_STYLE,
@@ -55,13 +56,15 @@ export function AddStepPopover({ className, onSelect }: AddStepPopoverProps) {
             style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 400 }}
           />
         </div>
-        <p
-          className="mt-2 text-[11px] leading-[14px] text-[#8c8888]"
-          style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}
-        >
-          <span className="font-medium text-[#595555]">Basic</span> = only with other Basic steps;
-          anything else is <span className="font-medium text-[#595555]">Advanced</span>.
-        </p>
+        {SHOW_WORKFLOW_TIER_CHIPS ? (
+          <p
+            className="mt-2 text-[11px] leading-[14px] text-[#8c8888]"
+            style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}
+          >
+            <span className="font-medium text-[#595555]">Basic</span> = only with other Basic steps;
+            anything else is <span className="font-medium text-[#595555]">Advanced</span>.
+          </p>
+        ) : null}
       </div>
       <div
         className="max-h-[min(360px,calc(100vh-120px))] overflow-y-auto overscroll-contain px-0 pb-2"
@@ -105,16 +108,18 @@ export function AddStepPopover({ className, onSelect }: AddStepPopoverProps) {
                     >
                       {item.label}
                     </span>
-                    <span
-                      className={`shrink-0 ${
-                        tierBasic
-                          ? WORKFLOW_TIER_CHIP_CLASS_BASIC
-                          : WORKFLOW_TIER_CHIP_CLASS_ADVANCED
-                      }`}
-                      style={WORKFLOW_TIER_CHIP_FONT_STYLE}
-                    >
-                      {tierBasic ? "Basic" : "Advanced"}
-                    </span>
+                    {SHOW_WORKFLOW_TIER_CHIPS ? (
+                      <span
+                        className={`shrink-0 ${
+                          tierBasic
+                            ? WORKFLOW_TIER_CHIP_CLASS_BASIC
+                            : WORKFLOW_TIER_CHIP_CLASS_ADVANCED
+                        }`}
+                        style={WORKFLOW_TIER_CHIP_FONT_STYLE}
+                      >
+                        {tierBasic ? "Basic" : "Advanced"}
+                      </span>
+                    ) : null}
                     <GripVertical
                       className="size-4 shrink-0 text-[#bfbebe]"
                       aria-hidden

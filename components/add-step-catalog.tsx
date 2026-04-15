@@ -171,6 +171,9 @@ export function isCatalogItemBasicTier(itemId: string): boolean {
   return WORKFLOW_BASIC_CATALOG_IDS.has(itemId);
 }
 
+/** Prototype: set to `false` to hide Basic/Advanced pills and related tier hints in the UI. */
+export const SHOW_WORKFLOW_TIER_CHIPS = false;
+
 /** Matches the workflow header Basic / Advanced pills (sidebar + popover use the same). */
 export const WORKFLOW_TIER_CHIP_CLASS_BASIC =
   "inline-flex h-5 shrink-0 items-center rounded border border-[#e0dede] bg-[#f9f7f6] px-2 text-[12px] leading-[15px] tracking-[0.25px] text-[#595555]";

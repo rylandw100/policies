@@ -21,11 +21,13 @@ import { cn } from "@/lib/utils";
 import { X, ChevronRight, ChevronDown, Type, DollarSign, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isWorkflowBasicTriggerOption } from "@/lib/workflow-basic-trigger";
+import { SHOW_WORKFLOW_TIER_CHIPS } from "@/components/add-step-catalog";
 
 const BASIC_WORKFLOW_BADGE_TITLE =
   "Only Start date, combined with Basic-tier steps, can keep this workflow on the Basic tier.";
 
 function BasicWorkflowEligibilityBadge({ optionId }: { optionId: string | null | undefined }) {
+  if (!SHOW_WORKFLOW_TIER_CHIPS) return null;
   if (!isWorkflowBasicTriggerOption(optionId)) return null;
   return (
     <span
@@ -38,6 +40,7 @@ function BasicWorkflowEligibilityBadge({ optionId }: { optionId: string | null |
 }
 
 function TriggerSelectorBasicExplainer() {
+  if (!SHOW_WORKFLOW_TIER_CHIPS) return null;
   return (
     <div className="border-b border-[#e0dede] bg-[#fafafa] px-4 py-2.5">
       <p
@@ -53,6 +56,7 @@ function TriggerSelectorBasicExplainer() {
 }
 
 function WorkflowTierImpactLine({ optionId }: { optionId: string | null | undefined }) {
+  if (!SHOW_WORKFLOW_TIER_CHIPS) return null;
   if (!isWorkflowBasicTriggerOption(optionId)) return null;
   return (
     <p
