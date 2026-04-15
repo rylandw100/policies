@@ -14,7 +14,7 @@ export function ExperienceToggle({
 }) {
   return (
     <div
-      className="inline-flex rounded-md border border-[#e0dede] bg-white p-px shadow-sm"
+      className="inline-flex rounded-md border border-[#e0dede] bg-white p-px"
       role="group"
       aria-label="Prototype experience"
     >
@@ -26,7 +26,7 @@ export function ExperienceToggle({
           className={cn(
             "rounded-[5px] px-2 py-0.5 text-[12px] font-medium leading-tight transition-colors",
             value === key
-              ? "bg-[#7A005D] text-white shadow-sm"
+              ? "bg-[#7A005D]/10 text-[#7A005D]"
               : "text-[#595555] hover:bg-[#ececec]"
           )}
         >
