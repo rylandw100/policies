@@ -13,12 +13,14 @@ import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  BadgeCheck,
   ChevronDown,
   ChevronRight,
   GripVertical,
   Menu,
   MoreVertical,
   Search,
+  Split,
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -54,18 +56,83 @@ const POLICY_AUDIENCE_CHIPS = [
   "San Francisco Office",
 ] as const;
 
+/** Figma [Policy.Card / And.Or](https://www.figma.com/design/QpcKUPO8RpJ14eUEYgY97M/%E2%9C%85-Approval?node-id=14793-121753) — policy scope row. */
+type OldCardPolicyApplyRow =
+  | { primary: string }
+  | { primary: string; excludeLabel: string; secondary: string };
+
+const OLD_CARD_POLICY_APPLY: Record<0 | 1 | 2, OldCardPolicyApplyRow> = {
+  0: { primary: "Engineering Department" },
+  1: { primary: "All managers" },
+  2: { primary: "San Francisco Office" },
+};
+
+/** Trigger condition chips + OR row (matches Figma structure). */
+type OldCardWhenRow = { a: string; b?: string };
+
+const OLD_CARD_WHEN: Record<0 | 1 | 2, OldCardWhenRow> = {
+  0: {
+    a: "Employment change is submitted",
+  },
+  1: {
+    a: "Employment change is submitted",
+  },
+  2: {
+    a: "Employment change is submitted",
+  },
+};
+
+/** Step 1 approval row (policy card). */
+type OldCardStepsRow =
+  | { step1Title: string; step1Primary: string }
+  | {
+      step1Title: string;
+      step1Primary: string;
+      step1ExcludeLabel: string;
+      step1Secondary: string;
+    };
+
+const OLD_CARD_STEPS: Record<0 | 1 | 2, OldCardStepsRow> = {
+  0: {
+    step1Title: "Step 1 — Require approvals from all…",
+    step1Primary: "Employee’s > manager",
+  },
+  1: {
+    step1Title: "Step 1 — Require approvals from all…",
+    step1Primary: "John Shin",
+  },
+  2: {
+    step1Title: "Step 1 — Require approvals from all…",
+    step1Primary: "Employee > Office manager",
+  },
+};
+
+function PolicyCardChip({ children }: { children: ReactNode }) {
+  return (
+    <span
+      className="rounded-md bg-[#ececec] px-2.5 py-1 text-[12px] text-[#252528]"
+      style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}
+    >
+      {children}
+    </span>
+  );
+}
+
 function PolicyCardInstance({
   cardIndex,
   condensed,
   policyDetailsExpanded,
   setPolicyDetailsExpanded,
   canvasHref,
+  /** OLD prototype: always show “When this happens” + “Steps”; detail toggle only applies to NEW condensed card. */
+  policySurfaceOld = false,
 }: {
   cardIndex: 0 | 1 | 2;
   condensed: boolean;
   policyDetailsExpanded: boolean;
   setPolicyDetailsExpanded: (value: SetStateAction<boolean>) => void;
   canvasHref: string;
+  policySurfaceOld?: boolean;
 }) {
   const audienceLabels = condensed
     ? POLICY_AUDIENCE_CHIPS
@@ -76,13 +143,23 @@ function PolicyCardInstance({
       <div className="relative z-[1] flex flex-col gap-6 px-6 pb-6 pt-6 pr-24">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
           <div className="flex max-w-[280px] shrink-0 gap-3 lg:w-[255px]">
-            <GripVertical className="mt-0.5 size-6 shrink-0 text-[#a8a4a4]" strokeWidth={2} aria-hidden />
+            {policySurfaceOld ? (
+              <GripVertical className="mt-0.5 size-6 shrink-0 text-[#a8a4a4]" strokeWidth={2} aria-hidden />
+            ) : null}
             <div className="min-w-0 flex flex-col gap-1">
               <p
                 className="text-[17px] leading-6 text-black"
                 style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535, letterSpacing: "0.25px" }}
               >
-                Employment change policies
+                {policySurfaceOld
+                  ? cardIndex === 0
+                    ? "Engineering policy"
+                    : cardIndex === 1
+                      ? "Managers"
+                      : cardIndex === 2
+                        ? "SF policy"
+                        : "Employment change policies"
+                  : "Employment change policies"}
               </p>
               <p className="text-[12px] leading-4 text-[#595555] tracking-wide" style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>
                 Last modified by: <span className="text-[#4a6ba6]">John Doe</span>
@@ -106,67 +183,163 @@ function PolicyCardInstance({
           </div>
 
           <div className="min-w-0 flex-1 space-y-4">
-            <PolicyCardSectionRow icon={Menu}>
-              <p
-                className="text-[15px] leading-[22px] text-[#595555]"
-                style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, letterSpacing: "0.5px" }}
-              >
-                Amet minim mollit non deserunt ullamco est sit aliqua dolor do amet sint. Velit officia consequat duis
-                enim velit. Velit officia consequat duis enim velit mollit.
-              </p>
-            </PolicyCardSectionRow>
-
-            {policyDetailsExpanded ? (
+            {policySurfaceOld ? (
               <>
-                <PolicyCardSectionRow icon={Users}>
+                {/* Figma row 1: description only (hamburger) — always visible */}
+                <PolicyCardSectionRow icon={Menu}>
                   <p
-                    className="text-[11px] font-bold uppercase tracking-wide text-black"
-                    style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 700, letterSpacing: "0.5px" }}
+                    className="text-[15px] leading-[22px] text-[#595555]"
+                    style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, letterSpacing: "0.5px" }}
                   >
-                    Policy should only apply for…
+                    Amet minim mollit non deserunt ullamco est sit aliqua dolor do amet sint. Velit officia consequat
+                    duis enim velit Velit officia consequat duis
                   </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    {audienceLabels.map((label, index) => (
-                      <Fragment key={label}>
-                        {index > 0 ? (
+                </PolicyCardSectionRow>
+                {policyDetailsExpanded ? (
+                  <>
+                    {/* Row 2: Policy should only apply for… */}
+                    <PolicyCardSectionRow icon={Users}>
+                      <p
+                        className="text-[11px] font-bold uppercase tracking-[0.5px] text-[#595555]"
+                        style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 700, letterSpacing: "0.5px" }}
+                      >
+                        Policy should only apply for…
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <PolicyCardChip>{OLD_CARD_POLICY_APPLY[cardIndex].primary}</PolicyCardChip>
+                        {"excludeLabel" in OLD_CARD_POLICY_APPLY[cardIndex] ? (
+                          <>
+                            <span
+                              className="text-[12px] text-black"
+                              style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, letterSpacing: "0.5px" }}
+                            >
+                              {OLD_CARD_POLICY_APPLY[cardIndex].excludeLabel}
+                            </span>
+                            <PolicyCardChip>{OLD_CARD_POLICY_APPLY[cardIndex].secondary}</PolicyCardChip>
+                          </>
+                        ) : null}
+                      </div>
+                    </PolicyCardSectionRow>
+                    {/* Row 3: When this happens… */}
+                    <PolicyCardSectionRow icon={Split}>
+                      <p
+                        className="text-[11px] font-bold uppercase tracking-[0.5px] text-[#595555]"
+                        style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 700, letterSpacing: "0.5px" }}
+                      >
+                        When this happens…
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <PolicyCardChip>{OLD_CARD_WHEN[cardIndex].a}</PolicyCardChip>
+                        {OLD_CARD_WHEN[cardIndex].b != null ? (
+                          <PolicyCardChip>{OLD_CARD_WHEN[cardIndex].b}</PolicyCardChip>
+                        ) : null}
+                      </div>
+                      {OLD_CARD_WHEN[cardIndex].b != null ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
                           <span
                             className="text-[11px] font-medium uppercase tracking-[1.5px] text-[#202022]"
                             style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
                           >
                             OR
                           </span>
-                        ) : null}
-                        <span
-                          className="rounded-md bg-[#ececec] px-2.5 py-1 text-[12px] text-[#252528]"
-                          style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}
+                          <PolicyCardChip>{OLD_CARD_WHEN[cardIndex].a}</PolicyCardChip>
+                          <PolicyCardChip>{OLD_CARD_WHEN[cardIndex].b}</PolicyCardChip>
+                        </div>
+                      ) : null}
+                    </PolicyCardSectionRow>
+                    {/* Row 4: Step 1 (approval) */}
+                    <PolicyCardSectionRow icon={BadgeCheck}>
+                      <div>
+                        <p
+                          className="text-[11px] font-bold uppercase tracking-[0.5px] text-[#595555]"
+                          style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 700, letterSpacing: "0.5px" }}
                         >
-                          {label}
-                        </span>
-                      </Fragment>
-                    ))}
-                  </div>
-                </PolicyCardSectionRow>
+                          {OLD_CARD_STEPS[cardIndex].step1Title}
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <PolicyCardChip>{OLD_CARD_STEPS[cardIndex].step1Primary}</PolicyCardChip>
+                          {"step1ExcludeLabel" in OLD_CARD_STEPS[cardIndex] ? (
+                            <>
+                              <span
+                                className="text-[12px] text-black"
+                                style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, letterSpacing: "0.5px" }}
+                              >
+                                {OLD_CARD_STEPS[cardIndex].step1ExcludeLabel}
+                              </span>
+                              <PolicyCardChip>{OLD_CARD_STEPS[cardIndex].step1Secondary}</PolicyCardChip>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    </PolicyCardSectionRow>
+                  </>
+                ) : null}
               </>
-            ) : null}
+            ) : (
+              <>
+                <PolicyCardSectionRow icon={Menu}>
+                  <p
+                    className="text-[15px] leading-[22px] text-[#595555]"
+                    style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, letterSpacing: "0.5px" }}
+                  >
+                    Amet minim mollit non deserunt ullamco est sit aliqua dolor do amet sint. Velit officia consequat duis
+                    enim velit. Velit officia consequat duis enim velit mollit.
+                  </p>
+                </PolicyCardSectionRow>
+
+                {policyDetailsExpanded ? (
+                  <PolicyCardSectionRow icon={Users}>
+                    <p
+                      className="text-[11px] font-bold uppercase tracking-wide text-[#595555]"
+                      style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 700, letterSpacing: "0.5px" }}
+                    >
+                      Policy should only apply for…
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {audienceLabels.map((label, index) => (
+                        <Fragment key={label}>
+                          {index > 0 ? (
+                            <span
+                              className="text-[11px] font-medium uppercase tracking-[1.5px] text-[#202022]"
+                              style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
+                            >
+                              OR
+                            </span>
+                          ) : null}
+                          <span
+                            className="rounded-md bg-[#ececec] px-2.5 py-1 text-[12px] text-[#252528]"
+                            style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}
+                          >
+                            {label}
+                          </span>
+                        </Fragment>
+                      ))}
+                    </div>
+                  </PolicyCardSectionRow>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 border-t border-[#e0dede] pt-4">
-          <button
-            type="button"
-            onClick={() => setPolicyDetailsExpanded((v) => !v)}
-            className="inline-flex items-center gap-1 text-[14px] text-[#7A005D] hover:underline"
-            style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
-            aria-expanded={policyDetailsExpanded}
-          >
-            {policyDetailsExpanded ? "Hide detail" : "Show detail"}
-            <ChevronDown
-              className={cn("size-4 transition-transform", policyDetailsExpanded && "rotate-180")}
-              strokeWidth={2}
-              aria-hidden
-            />
-          </button>
-        </div>
+        {policySurfaceOld ? (
+          <div className="flex flex-wrap items-center gap-3 border-t border-[#e0dede] pt-4">
+            <button
+              type="button"
+              onClick={() => setPolicyDetailsExpanded((v) => !v)}
+              className="inline-flex items-center gap-1 text-[14px] text-[#7A005D] hover:underline"
+              style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
+              aria-expanded={policyDetailsExpanded}
+            >
+              {policyDetailsExpanded ? "Hide detail" : "Show detail"}
+              <ChevronDown
+                className={cn("size-4 transition-transform", policyDetailsExpanded && "rotate-180")}
+                strokeWidth={2}
+                aria-hidden
+              />
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="absolute right-3 top-3 z-[2] flex items-center gap-0.5">
@@ -239,10 +412,10 @@ function OldPolicyLanding({
                   className={cn(
                     "shrink-0 border-b-[3px] pb-3 text-[15px] transition-colors",
                     active
-                      ? "border-black font-semibold text-black"
+                      ? "border-black text-black"
                       : "border-transparent font-normal text-[#8c8888] hover:text-[#252528]"
                   )}
-                  style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: active ? 600 : 430 }}
+                  style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: active ? 535 : 430 }}
                 >
                   {label}
                 </button>
@@ -286,9 +459,9 @@ function OldPolicyLanding({
                         type="button"
                         className={cn(
                           "relative w-full border-l-[3px] py-2 pl-5 pr-3 text-left text-[14px]",
-                          "border-black font-semibold text-black"
+                          "border-black text-black"
                         )}
-                        style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 600 }}
+                        style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
                       >
                         Employment change
                       </button>
@@ -327,7 +500,7 @@ function OldPolicyLanding({
                     className="text-[20px] text-[#252528]"
                     style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 535 }}
                   >
-                    Transition approval policies
+                    Employment change policies
                   </h2>
                   <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                     <div className="relative min-w-[160px] flex-1 sm:max-w-[220px] sm:flex-initial">
@@ -347,42 +520,37 @@ function OldPolicyLanding({
                     </Button>
                   </div>
                 </div>
-                <div
-                  className={cn(
-                    "mb-5 flex flex-wrap items-center gap-3",
-                    experience === "old" ? "justify-between" : "justify-end"
-                  )}
-                >
-                  {experience === "old" ? (
+                {experience === "old" ? (
+                  <div className="mb-5 flex flex-wrap items-center gap-3 justify-between">
                     <BranchingModeSelect
                       value={branchingMode}
                       onChange={onBranchingModeChange}
                       popoverAlign="start"
                     />
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => setPolicyDetailsExpanded((v) => !v)}
-                    className="flex cursor-pointer items-center gap-2 text-[14px] text-[#595555]"
-                    aria-pressed={policyDetailsExpanded}
-                    aria-label={policyDetailsExpanded ? "Hide policy details" : "Show policy details"}
-                  >
-                    <span style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>Show details</span>
-                    <span
-                      className={cn(
-                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                        policyDetailsExpanded ? "bg-[#7A005D]" : "bg-[#e0dede]"
-                      )}
+                    <button
+                      type="button"
+                      onClick={() => setPolicyDetailsExpanded((v) => !v)}
+                      className="flex cursor-pointer items-center gap-2 text-[14px] text-[#595555]"
+                      aria-pressed={policyDetailsExpanded}
+                      aria-label={policyDetailsExpanded ? "Hide policy details" : "Show policy details"}
                     >
+                      <span style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430 }}>Show details</span>
                       <span
                         className={cn(
-                          "absolute top-1/2 size-4 -translate-y-1/2 rounded-full bg-white shadow-sm transition-[left,transform]",
-                          policyDetailsExpanded ? "right-1" : "left-1"
+                          "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                          policyDetailsExpanded ? "bg-[#7A005D]" : "bg-[#e0dede]"
                         )}
-                      />
-                    </span>
-                  </button>
-                </div>
+                      >
+                        <span
+                          className={cn(
+                            "absolute top-1/2 size-4 -translate-y-1/2 rounded-full bg-white shadow-sm transition-[left,transform]",
+                            policyDetailsExpanded ? "right-1" : "left-1"
+                          )}
+                        />
+                      </span>
+                    </button>
+                  </div>
+                ) : null}
 
                 {isCondensed ? (
                   <PolicyCardInstance
@@ -391,6 +559,7 @@ function OldPolicyLanding({
                     policyDetailsExpanded={policyDetailsExpanded}
                     setPolicyDetailsExpanded={setPolicyDetailsExpanded}
                     canvasHref={canvasHref}
+                    policySurfaceOld={false}
                   />
                 ) : (
                   <div className="flex flex-col gap-[24px]">
@@ -402,6 +571,7 @@ function OldPolicyLanding({
                         policyDetailsExpanded={policyDetailsExpanded}
                         setPolicyDetailsExpanded={setPolicyDetailsExpanded}
                         canvasHref={canvasHref}
+                        policySurfaceOld={experience === "old"}
                       />
                     ))}
                   </div>
