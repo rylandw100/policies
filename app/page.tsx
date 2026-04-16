@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  createElement,
   Fragment,
   Suspense,
   useCallback,
@@ -13,15 +14,11 @@ import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  BadgeCheck,
   ChevronDown,
   ChevronRight,
   GripVertical,
-  Menu,
   MoreVertical,
   Search,
-  Split,
-  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BranchingModeSelect } from "@/components/branching-mode-select";
@@ -29,20 +26,103 @@ import {
   PrototypeGlobalNav,
   type PrototypeExperience,
 } from "@/components/prototype-global-nav";
+import { PolicyApprovalsIcon } from "@/components/policy-approvals-icon";
 import { cn } from "@/lib/utils";
+
+/** Filled “body text” lines for the policy description row (replaces hamburger menu icon). */
+function PolicyCardDescriptionLinesIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width={24}
+      height={24}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path d="M13 19.25V20.75H3V19.25H13Z" fill="currentColor" />
+      <path d="M21 16.75H3V15.25H21V16.75Z" fill="currentColor" />
+      <path d="M21 12.75H3V11.25H21V12.75Z" fill="currentColor" />
+      <path d="M21 8.75H3V7.25H21V8.75Z" fill="currentColor" />
+      <path d="M21 4.75H3V3.25H21V4.75Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** Filled audience / “policy applies to” mark (replaces Lucide Users). */
+function PolicyCardAudienceIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width={24}
+      height={24}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        d="M8 4.625C6.255 4.625 4.812 6.076 4.812 7.901C4.812 9.726 6.255 11.177 8 11.177C9.745 11.177 11.188 9.726 11.188 7.901C11.188 6.076 9.745 4.625 8 4.625ZM3.312 7.901C3.312 5.279 5.395 3.125 7.999 3.125C10.603 3.125 12.686 5.279 12.686 7.901C12.686 10.523 10.603 12.677 7.999 12.677C5.395 12.677 3.312 10.523 3.312 7.901ZM0.25 19.98C0.25 16.617 2.921 13.862 6.25 13.862H9.75C11.556 13.862 13.168 14.673 14.266 15.952C14.804 15.741 15.389 15.625 16 15.625H19C21.623 15.625 23.75 17.752 23.75 20.375V20.875H22.25V20.375C22.25 18.58 20.795 17.125 19 17.125H16C15.694 17.125 15.399 17.167 15.119 17.246C15.524 18.07 15.751 18.999 15.751 19.981V20.876H14.251V19.981C14.251 17.414 12.221 15.363 9.751 15.363H6.251C3.781 15.363 1.751 17.415 1.751 19.981V20.876H0.251V19.981L0.25 19.98ZM15.25 10.875C15.25 9.632 16.257 8.625 17.5 8.625C18.743 8.625 19.75 9.632 19.75 10.875C19.75 12.118 18.743 13.125 17.5 13.125C16.257 13.125 15.25 12.118 15.25 10.875ZM17.5 7.125C15.429 7.125 13.75 8.804 13.75 10.875C13.75 12.946 15.429 14.625 17.5 14.625C19.571 14.625 21.25 12.946 21.25 10.875C21.25 8.804 19.571 7.125 17.5 7.125Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+/** Filled trigger / “when this happens” mark (replaces Lucide Split). */
+function PolicyCardWhenHappensIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width={24}
+      height={24}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        d="M14.3722 0.320312L13.1542 9.24931H20.7772L9.62717 23.6783L10.8452 14.7493H3.22217L14.3722 0.320312ZM6.27717 13.2493H12.5632L11.8712 18.3203L17.7212 10.7493H11.4352L12.1262 5.67831L6.27717 13.2493Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+type PolicyCardSectionRowIcon =
+  | LucideIcon
+  | "description-lines"
+  | "policy-audience"
+  | "when-happens"
+  | "step-approvals";
 
 /** Matches Figma `Policy.Card / And.Or` — icon + vertical rule + content per row ([node](https://www.figma.com/design/QpcKUPO8RpJ14eUEYgY97M/%E2%9C%85-Approval?node-id=14793-121753)). */
 function PolicyCardSectionRow({
-  icon: Icon,
+  icon,
   children,
 }: {
-  icon: LucideIcon;
+  icon: PolicyCardSectionRowIcon;
   children: ReactNode;
 }) {
   return (
     <div className="flex items-stretch gap-4">
       <div className="flex w-6 shrink-0 justify-center pt-0.5">
-        <Icon className="size-6 shrink-0 text-[#a8a4a4]" strokeWidth={2} aria-hidden />
+        {icon === "description-lines" ? (
+          <PolicyCardDescriptionLinesIcon className="size-6 shrink-0 text-[#a8a4a4]" />
+        ) : icon === "policy-audience" ? (
+          <PolicyCardAudienceIcon className="size-6 shrink-0 text-[#a8a4a4]" />
+        ) : icon === "when-happens" ? (
+          <PolicyCardWhenHappensIcon className="size-6 shrink-0 text-[#a8a4a4]" />
+        ) : icon === "step-approvals" ? (
+          <PolicyApprovalsIcon className="size-6 shrink-0 text-[#a8a4a4]" />
+        ) : (
+          createElement(icon, {
+            className: "size-6 shrink-0 text-[#a8a4a4]",
+            strokeWidth: 2,
+            "aria-hidden": true,
+          })
+        )}
       </div>
       <div className="w-px shrink-0 bg-[#c4c4c4]" aria-hidden />
       <div className="min-w-0 flex-1">{children}</div>
@@ -186,7 +266,7 @@ function PolicyCardInstance({
             {policySurfaceOld ? (
               <>
                 {/* Figma row 1: description only (hamburger) — always visible */}
-                <PolicyCardSectionRow icon={Menu}>
+                <PolicyCardSectionRow icon="description-lines">
                   <p
                     className="text-[15px] leading-[22px] text-[#595555]"
                     style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, letterSpacing: "0.5px" }}
@@ -198,7 +278,7 @@ function PolicyCardInstance({
                 {policyDetailsExpanded ? (
                   <>
                     {/* Row 2: Policy should only apply for… */}
-                    <PolicyCardSectionRow icon={Users}>
+                    <PolicyCardSectionRow icon="policy-audience">
                       <p
                         className="text-[11px] font-bold uppercase tracking-[0.5px] text-[#595555]"
                         style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 700, letterSpacing: "0.5px" }}
@@ -221,7 +301,7 @@ function PolicyCardInstance({
                       </div>
                     </PolicyCardSectionRow>
                     {/* Row 3: When this happens… */}
-                    <PolicyCardSectionRow icon={Split}>
+                    <PolicyCardSectionRow icon="when-happens">
                       <p
                         className="text-[11px] font-bold uppercase tracking-[0.5px] text-[#595555]"
                         style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 700, letterSpacing: "0.5px" }}
@@ -248,7 +328,7 @@ function PolicyCardInstance({
                       ) : null}
                     </PolicyCardSectionRow>
                     {/* Row 4: Step 1 (approval) */}
-                    <PolicyCardSectionRow icon={BadgeCheck}>
+                    <PolicyCardSectionRow icon="step-approvals">
                       <div>
                         <p
                           className="text-[11px] font-bold uppercase tracking-[0.5px] text-[#595555]"
@@ -277,7 +357,7 @@ function PolicyCardInstance({
               </>
             ) : (
               <>
-                <PolicyCardSectionRow icon={Menu}>
+                <PolicyCardSectionRow icon="description-lines">
                   <p
                     className="text-[15px] leading-[22px] text-[#595555]"
                     style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 430, letterSpacing: "0.5px" }}
@@ -288,7 +368,7 @@ function PolicyCardInstance({
                 </PolicyCardSectionRow>
 
                 {policyDetailsExpanded ? (
-                  <PolicyCardSectionRow icon={Users}>
+                  <PolicyCardSectionRow icon="policy-audience">
                     <p
                       className="text-[11px] font-bold uppercase tracking-wide text-[#595555]"
                       style={{ fontFamily: "'Basel Grotesk', sans-serif", fontWeight: 700, letterSpacing: "0.5px" }}

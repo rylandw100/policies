@@ -33,15 +33,16 @@ import {
   Globe,
   Terminal,
   ClipboardList,
-  BadgeCheck,
   X,
   GripVertical,
   Sparkles,
   ArrowUp,
   Pencil,
   Plus,
-  Waypoints,
 } from "lucide-react";
+import { PolicyApprovalsIcon } from "@/components/policy-approvals-icon";
+import { WorkflowMultiSplitIcon } from "@/components/workflow-multi-split-icon";
+import { WorkflowTrueFalseIcon } from "@/components/workflow-true-false-icon";
 import { TriggerIcon, AIIcon, SMSIcon, WidgetIcon, CloseIcon, TrashIcon } from "@/components/icons";
 import {
   WORKFLOW_CANVAS_SVG_DASHED_EDGE,
@@ -541,10 +542,8 @@ function BranchLineStepCanvasInner({
     case "requestApproval":
       return (
         <>
-          <BadgeCheck
+          <PolicyApprovalsIcon
             className={cn("size-6 shrink-0", dim ? "text-[#8c8888]" : "text-[#252528]")}
-            strokeWidth={2}
-            aria-hidden
           />
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex min-w-0 items-center gap-2">
@@ -3791,15 +3790,13 @@ export async function onRipplingEvent(event, context) {
                         tabIndex={0}
                       >
                         <div className="box-border flex w-full flex-row items-start gap-3 p-3">
-                          <Waypoints
+                          <WorkflowMultiSplitIcon
                             className={cn(
                               "size-6 shrink-0",
                               selectedCanvasStepId !== null && selectedCanvasStepId !== step.id
                                 ? "text-[#8c8888]"
                                 : "text-[#252528]"
                             )}
-                            strokeWidth={2}
-                            aria-hidden
                           />
                           <div className="flex min-w-0 flex-1 flex-col">
                             <p
@@ -3843,15 +3840,13 @@ export async function onRipplingEvent(event, context) {
                                   )}
                                 >
                                   <div className="box-border flex w-full flex-row items-start gap-3 p-3">
-                                    <Waypoints
+                                    <WorkflowTrueFalseIcon
                                       className={cn(
                                         "size-6 shrink-0",
                                         selectedCanvasStepId !== null
                                           ? "text-[#8c8888]"
                                           : "text-[#252528]"
                                       )}
-                                      strokeWidth={2}
-                                      aria-hidden
                                     />
                                     <div className="flex min-w-0 flex-1 flex-col">
                                       <p
@@ -4140,15 +4135,13 @@ export async function onRipplingEvent(event, context) {
                     )}
                     {step.role === "requestApproval" && (
                       <>
-                        <BadgeCheck
+                        <PolicyApprovalsIcon
                           className={cn(
                             "size-6 shrink-0",
                             selectedCanvasStepId !== null && selectedCanvasStepId !== step.id
                               ? "text-[#8c8888]"
                               : "text-[#252528]"
                           )}
-                          strokeWidth={2}
-                          aria-hidden
                         />
                         <div className="flex min-w-0 flex-1 flex-col">
                           <div className="flex min-w-0 items-center gap-2">
